@@ -4,6 +4,11 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-09-16
+
+### Added
+- **Install conflict recovery (AS-style):** On recoverable adb install failures (`INSTALL_FAILED_VERSION_DOWNGRADE`, signature mismatch, etc.), show a modal confirm; if accepted, `adb uninstall` then reinstall and launch.
+
 ## [0.0.16] - 2026-09-16
 
 ### Fixed

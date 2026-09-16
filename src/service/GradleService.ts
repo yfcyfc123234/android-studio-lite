@@ -24,8 +24,13 @@ export class GradleService extends Service {
         onOutput?: (output: string) => void,
         cancellationToken?: vscode.CancellationToken,
         /** When set, Gradle/adb installs to this serial (ANDROID_SERIAL). */
-        deviceSerial?: string
+        deviceSerial?: string,
+        options?: {
+            /** When false, skip the failure toast (caller shows a confirm dialog instead). Default true. */
+            notifyOnFailure?: boolean;
+        },
     ): Promise<void> {
+        const notifyOnFailure = options?.notifyOnFailure !== false;
         if (!this.workspacePath) {
             throw new Error("No workspace folder found");
         }
@@ -101,7 +106,9 @@ export class GradleService extends Service {
             this.buildProcess.on('error', (error) => {
                 this.buildProcess = null;
                 this.manager.output.append(stderr, "error");
-                showMsg(MsgType.error, `Failed to install ${variantTask}: ${error.message}`);
+                if (notifyOnFailure) {
+                    showMsg(MsgType.error, `Failed to install ${variantTask}: ${error.message}`);
+                }
                 reject(error);
             });
 
@@ -114,7 +121,9 @@ export class GradleService extends Service {
                     this.manager.output.append(stderr, "error");
                     const errorMsg = stderr || stdout || `Gradle build failed with exit code ${code}`;
                     console.error(`[GradleService] Build failed. Exit code: ${code}, stderr: ${stderr}, stdout: ${stdout}`);
-                    showMsg(MsgType.error, `Failed to install ${variantTask}. Exit code: ${code}`);
+                    if (notifyOnFailure) {
+                        showMsg(MsgType.error, `Failed to install ${variantTask}. Exit code: ${code}`);
+                    }
                     reject(new Error(errorMsg));
                 }
             });

@@ -8,6 +8,7 @@ import { EmulatorBootService } from '../device/EmulatorBootService.js';
 import { LogcatService } from '../service/LogcatService.js';
 import { WORKSPACE_SELECTED_DEVICE_SERIAL } from '../service/ScreenshotService.js';
 import { formatAdbDeviceLabel, listOnlineAdbDevices } from '../utils/adbDevices.js';
+import { classifyRecoverableInstallFailure } from '../utils/installFailure.js';
 
 /** Unified run target shown in the device dropdown. */
 export interface RunTarget {
@@ -275,18 +276,65 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                         progress.report({ increment: 0, message: `Installing ${installTask}...` });
                         console.log(`[AVDSelectorProvider] Starting gradle install task: ${installTask} → ${deviceSerial}`);
 
-                        await this.manager.gradle.installVariant(
-                            installTask,
-                            (output) => {
-                                const lines = output.split('\n').filter(l => l.trim());
-                                const lastLine = lines[lines.length - 1];
-                                if (lastLine && lastLine.length < 100) {
-                                    progress.report({ message: lastLine });
-                                }
-                            },
-                            cancelToken.token,
-                            deviceSerial,
-                        );
+                        const reportInstallOutput = (output: string) => {
+                            const lines = output.split('\n').filter(l => l.trim());
+                            const lastLine = lines[lines.length - 1];
+                            if (lastLine && lastLine.length < 100) {
+                                progress.report({ message: lastLine });
+                            }
+                        };
+
+                        const runInstall = () =>
+                            this.manager.gradle.installVariant(
+                                installTask,
+                                reportInstallOutput,
+                                cancelToken.token,
+                                deviceSerial,
+                                { notifyOnFailure: false },
+                            );
+
+                        try {
+                            await runInstall();
+                        } catch (installError: any) {
+                            if (cancelToken.token.isCancellationRequested || token.isCancellationRequested) {
+                                throw new Error('Build was cancelled');
+                            }
+
+                            const errText = String(installError?.message || installError || '');
+                            const recoverable = classifyRecoverableInstallFailure(errText);
+                            const applicationId = variant.applicationId;
+
+                            if (!recoverable || !applicationId) {
+                                throw installError;
+                            }
+
+                            console.warn(
+                                `[AVDSelectorProvider] Recoverable install failure ${recoverable.code}; offering uninstall+reinstall`,
+                            );
+
+                            const choice = await window.showWarningMessage(
+                                `The application could not be installed.\n\n` +
+                                    `${recoverable.code}\n${recoverable.summary}\n\n` +
+                                    `Package: ${applicationId}\n` +
+                                    `Do you want to uninstall the existing application and reinstall?`,
+                                { modal: true },
+                                'Uninstall and Reinstall',
+                            );
+
+                            if (choice !== 'Uninstall and Reinstall') {
+                                throw installError;
+                            }
+
+                            progress.report({ message: `Uninstalling ${applicationId}...` });
+                            await this.uninstallApp(applicationId, deviceSerial);
+
+                            if (cancelToken.token.isCancellationRequested || token.isCancellationRequested) {
+                                throw new Error('Build was cancelled');
+                            }
+
+                            progress.report({ message: `Reinstalling ${installTask}...` });
+                            await runInstall();
+                        }
 
                         console.log(`[AVDSelectorProvider] Gradle install task completed successfully: ${installTask}`);
 
@@ -487,6 +535,57 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 return;
             }
             throw new Error(`Failed to launch app: ${error.message || String(error)}`);
+        }
+    }
+
+    /** Force-remove package from device (AS-style recovery before reinstall). */
+    private async uninstallApp(applicationId: string, serial?: string): Promise<void> {
+        const config = this.manager.getConfig();
+        const sdkPath = config.sdkPath;
+        if (!sdkPath) {
+            throw new Error('SDK path not configured');
+        }
+        if (!SAFE_APPLICATION_ID.test(applicationId)) {
+            throw new Error(`Invalid applicationId: ${applicationId}`);
+        }
+        if (serial && !SAFE_ADB_SERIAL.test(serial)) {
+            throw new Error(`Invalid device serial: ${serial}`);
+        }
+
+        const pathMod = await import('path');
+        const adbPath = pathMod.join(
+            sdkPath,
+            'platform-tools',
+            process.platform === 'win32' ? 'adb.exe' : 'adb',
+        );
+
+        const args = serial
+            ? ['-s', serial, 'uninstall', applicationId]
+            : ['uninstall', applicationId];
+
+        console.log(`[AVDSelectorProvider] Uninstalling ${applicationId} on ${serial || 'default'}`);
+        this.manager.output.append(`adb ${args.join(' ')}\n`);
+
+        const { execFile } = await import('child_process');
+        const { promisify } = await import('util');
+        const execFileAsync = promisify(execFile);
+
+        try {
+            const result = await execFileAsync(adbPath, args, { windowsHide: true, timeout: 60000 });
+            const out = `${result.stdout || ''}${result.stderr || ''}`.trim();
+            if (out) {
+                this.manager.output.append(`${out}\n`);
+            }
+            console.log(`[AVDSelectorProvider] Uninstall finished: ${out || 'ok'}`);
+        } catch (error: any) {
+            const combined = `${error?.stdout || ''}${error?.stderr || ''}${error?.message || ''}`.trim();
+            // Already gone / flaky OEM delete — continue to reinstall
+            if (/not installed|Unknown package|DELETE_FAILED_INTERNAL_ERROR/i.test(combined)) {
+                this.manager.output.append(`Uninstall skipped/partial: ${combined}\n`);
+                console.warn(`[AVDSelectorProvider] Uninstall non-fatal: ${combined}`);
+                return;
+            }
+            throw new Error(`Failed to uninstall ${applicationId}: ${combined || String(error)}`);
         }
     }
 
