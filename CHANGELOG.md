@@ -9,6 +9,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 - **Build Variant cascade:** Changing an application module's variant (e.g. `toyotaRelease`) aligns library modules to a compatible variant with the same `buildType` (and best flavor overlap), similar to Android Studio.
 - **Release Run/install:** Application release variants now expose `install*` tasks (not only `bundle`), using project-scoped paths like `:toyota:installToyotaRelease`.
 - **Device screenshot:** Take Screenshot (sidebar **Shot** / Command Palette). Settings: `screenshot.saveMode` (`ask` / `file` / `clipboard`) and `screenshot.savePath`.
+- **Qodo review fixes:** Preserve selected Run target across refreshes; launch via `execFile` args (no shell interpolation); classify online `emulator-*` separately from physical devices.
 
 ## [0.0.10] - 2026-03-06
 
