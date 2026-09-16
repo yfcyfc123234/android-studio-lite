@@ -4,6 +4,11 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.16] - 2026-09-16
+
+### Fixed
+- **AGP 9 module discovery:** Build Variant / Module dropdown no longer stays empty on AGP 9 (`android.newDsl`). The init script now collects variants via `androidComponents.onVariants`, and still falls back to legacy `applicationVariants` / `libraryVariants` for AGP 7/8 or `android.newDsl=false`.
+
 ### Added
 - **Physical device support:** The Run dropdown lists online devices from `adb devices` alongside local AVDs. Running on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install/launch.
 - **Build Variant cascade:** Changing an application module's variant (e.g. `toyotaRelease`) aligns library modules to a compatible variant with the same `buildType` (and best flavor overlap), similar to Android Studio.
