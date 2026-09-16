@@ -1,4 +1,4 @@
-# Android Studio Lite
+﻿# Android Studio Lite
 
 You ain't going back to android studio for a while.
 

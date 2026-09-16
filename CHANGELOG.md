@@ -1,6 +1,11 @@
-# Change Log
+﻿# Change Log
 
 All notable changes to the "Android Studio Lite" extension will be documented in this file.
+
+## [Unreleased]
+
+### Added
+- **Physical device support:** The Run dropdown lists online devices from `adb devices` alongside local AVDs. Running on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install/launch.
 
 ## [0.0.10] - 2026-03-06
 
