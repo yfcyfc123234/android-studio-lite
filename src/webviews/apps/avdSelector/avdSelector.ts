@@ -259,6 +259,17 @@ export class ASlAVDSelectorApp extends ASlElement {
         }
     }
 
+    private handleScreenshotClick() {
+        if (!this.vscode) {
+            return;
+        }
+        const target = this.targets.find(t => t.id === this.selectedTargetId);
+        this.vscode.postMessage({
+            type: 'take-screenshot',
+            params: { serial: target?.serial },
+        });
+    }
+
     private handleMessage = (event: MessageEvent) => {
         const message = event.data;
         switch (message.type) {
@@ -433,6 +444,13 @@ export class ASlAVDSelectorApp extends ASlElement {
 						label="Cancel"
 						?disabled=${!this.buildCancellable}
 						@button-click=${this.handleCancelClick}
+					></asl-button>
+					<asl-button
+						variant="secondary"
+						icon="📷"
+						label="Shot"
+						?disabled=${!this.selectedTargetId}
+						@button-click=${this.handleScreenshotClick}
 					></asl-button>
 					${this.logcatAvailable
 						? html`<asl-toggle-button

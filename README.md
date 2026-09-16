@@ -1,4 +1,4 @@
-# Android Studio Lite
+﻿# Android Studio Lite
 
 You ain't going back to android studio for a while.
 
@@ -8,7 +8,12 @@ You ain't going back to android studio for a while.
 
 ---
 
-## Get started in 2 minutes
+## Private fork notes (yfcyfc123234)
+
+- Device dropdown lists **online physical devices** (`adb devices`) plus local AVDs.
+- Run on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install.
+- Prefer physical device when both are available.
+
 
 1. **Install** the extension (Extensions view → search "Android Studio Lite" → Install).
 2. **Set Android SDK path**
@@ -17,9 +22,9 @@ You ain't going back to android studio for a while.
   - Restart the editor after changing env vars.
 3. **Open an Android project** (folder with `gradlew`).
 4. Open the **Android Studio Lite** view in the sidebar (Android icon in the activity bar).
-5. **Select a device** in the dropdown — online **physical devices** (`adb devices`) and local **AVDs** both appear (physical devices are preferred when present).
+5. **Select an AVD** in the dropdown (or start an emulator from the AVD view).
 6. **Select a module** (e.g. `app`) in the dropdown.
-7. Click **Run**. The extension builds, installs, and launches the app on the selected device (physical runs skip emulator boot).
+7. Click **Run**. The extension builds, installs, and launches the app on the device.
 8. Turn **Logcat** on to see logs for that app in the Logcat output channel.
 
 ---
@@ -51,11 +56,19 @@ After changing environment variables, restart the editor.
 ## Running your app
 
 1. Open the **Android Studio Lite** sidebar view.
-2. **Device:** Choose an AVD from the dropdown. If the emulator is not running, the extension can start it when you Run.
-3. **Module:** Choose the app module (e.g. `app`). Variants are loaded from Gradle; pick the one you want (e.g. debug).
+2. **Device:** Choose a physical device or AVD from the dropdown.
+3. **Module:** Choose the app module (e.g. `app` / `:toyota`). Variants are loaded from Gradle; pick the one you want in Build Variant.
 4. Click **Run**.
-  - Extension builds and installs the app (Gradle), then launches it on the selected device.
-  - The first run may take longer (Gradle, booting emulator).
+5. **Shot:** Capture the current device screen — choose save-to-file or copy-to-clipboard (configurable).
+
+---
+
+## Screenshots
+
+- Command Palette: `Android Studio Lite: Take Screenshot`
+- Settings:
+  - `android-studio-lite.screenshot.saveMode`: `ask` (default) | `file` | `clipboard`
+  - `android-studio-lite.screenshot.savePath`: folder for PNG files (empty → `<workspace>/screenshots`)
 
 ---
 
