@@ -432,12 +432,26 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     });
 
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') vscode.postMessage({ type: 'secondary' });
-      // Don't treat Enter as confirm while selecting/copying text in inputs — none here;
-      // still skip if user is holding modifier for copy
-      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        vscode.postMessage({ type: 'primary' });
+      if (e.key === 'Escape') {
+        vscode.postMessage({ type: 'secondary' });
+        return;
       }
+      if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+        return;
+      }
+      // Do not confirm while focus is on Copy / secondary / other controls
+      const active = document.activeElement;
+      const primary = document.getElementById('btn-primary');
+      if (active && primary && active !== primary) {
+        const tag = (active.tagName || '').toLowerCase();
+        if (tag === 'button' || tag === 'a' || tag === 'input' || tag === 'textarea' || tag === 'select') {
+          return;
+        }
+        if (active.classList?.contains('copyable') || active.classList?.contains('btn-copy')) {
+          return;
+        }
+      }
+      vscode.postMessage({ type: 'primary' });
     });
   </script>
 </body>

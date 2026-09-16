@@ -267,7 +267,10 @@ export class ASlAVDSelectorApp extends ASlElement {
         const target = this.targets.find(t => t.id === this.selectedTargetId);
         this.vscode.postMessage({
             type: 'take-screenshot',
-            params: { serial: target?.serial },
+            params: {
+                serial: target?.serial,
+                avdName: target?.avdName,
+            },
         });
     }
 

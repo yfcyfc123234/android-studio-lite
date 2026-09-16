@@ -322,11 +322,12 @@ export interface InstallRecoveryContext {
     isCancelled?: () => boolean;
 }
 
-export type InstallRecoveryResult = 'recovered' | 'cancelled' | 'unhandled';
+export type InstallRecoveryResult = 'recovered' | 'cancelled' | 'unhandled' | 'reinstall_failed';
 
 /**
  * If the install error is recoverable, show a themed confirm and run uninstall → reinstall.
  * Returns `unhandled` when the caller should fall through to normal failure UI.
+ * Returns `reinstall_failed` when uninstall already ran but reinstall failed (do not re-prompt uninstall).
  */
 export async function tryRecoverInstallFailure(ctx: InstallRecoveryContext): Promise<InstallRecoveryResult> {
     if (ctx.isCancelled?.()) {
@@ -406,8 +407,27 @@ export async function tryRecoverInstallFailure(ctx: InstallRecoveryContext): Pro
     }
 
     ctx.onProgress?.('Reinstalling...');
-    await ctx.reinstall();
-    return 'recovered';
+    try {
+        await ctx.reinstall();
+        return 'recovered';
+    } catch (reinstallErr) {
+        if (ctx.isCancelled?.()) {
+            return 'cancelled';
+        }
+        // Package already removed — do not reclassify as another uninstall conflict.
+        await showThemedAlert({
+            title: 'Reinstall failed',
+            heading: 'The previous app was uninstalled, but reinstall failed',
+            message:
+                `${errorTextOf(reinstallErr) || 'Unknown error'}\n\n` +
+                `The conflict package is already gone. Fix the build/device issue, then Run again.`,
+            code: action.code,
+            details,
+            severity: 'error',
+            primaryLabel: 'OK',
+        });
+        return 'reinstall_failed';
+    }
 }
 
 /**

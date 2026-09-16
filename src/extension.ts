@@ -90,8 +90,12 @@ export async function activate(context: vscode.ExtensionContext) {
 			logcatService.show();
 			vscode.window.showInformationMessage('Filter by log level is not available. Logcat shows all levels for the running app.');
 		}),
-		vscode.commands.registerCommand('android-studio-lite.takeScreenshot', async (serial?: string) => {
-			await screenshotService.takeScreenshot(typeof serial === 'string' ? serial : undefined);
+		vscode.commands.registerCommand('android-studio-lite.takeScreenshot', async (arg?: string | { serial?: string; avdName?: string }) => {
+			if (typeof arg === 'string') {
+				await screenshotService.takeScreenshot(arg);
+			} else {
+				await screenshotService.takeScreenshot(arg);
+			}
 		}),
 	]);
 

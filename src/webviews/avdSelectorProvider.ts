@@ -150,7 +150,10 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         } else if (e.type === 'toggle-logcat') {
             void this.handleToggleLogcat(e.params);
         } else if (e.type === 'take-screenshot') {
-            void commands.executeCommand('android-studio-lite.takeScreenshot', e.params?.serial);
+            void commands.executeCommand('android-studio-lite.takeScreenshot', {
+                serial: e.params?.serial,
+                avdName: e.params?.avdName,
+            });
         }
     }
 
@@ -213,16 +216,18 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             const variantName = selectedVariants[moduleName] || module.variants[0].name;
             const variant = module.variants.find(v => v.name === variantName) || module.variants[0];
 
-            // Prefer metadata install task; fall back for older scripts that only
-            // exposed install on debug (release had bundle only).
+            // Prefer metadata install task. Do not invent install* for release — AGP often has none.
             let installTask = variant.tasks.install;
-            if (!installTask && module.type === 'application') {
+            if (!installTask && module.type === 'application' && variant.buildType === 'debug') {
                 const cap = variantName.charAt(0).toUpperCase() + variantName.slice(1);
-                installTask = `${moduleName}:install${cap}`;
-                console.log(`[AVDSelectorProvider] install task missing in metadata; falling back to ${installTask}`);
+                const pathPrefix = moduleName === ':' ? '' : moduleName;
+                installTask = pathPrefix ? `${pathPrefix}:install${cap}` : `:install${cap}`;
+                console.log(`[AVDSelectorProvider] install task missing in metadata; debug fallback ${installTask}`);
             }
             if (!installTask) {
-                await this.host.notify('build-failed', { error: `No install task found for variant ${variantName}` });
+                await this.host.notify('build-failed', {
+                    error: `No install task for variant ${variantName}. Debuggable/debug variants expose install*; ordinary release usually does not.`,
+                });
                 return;
             }
 
@@ -313,8 +318,8 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
                             if (recovery === 'recovered') {
                                 // continue to launch
-                            } else if (recovery === 'cancelled') {
-                                // User dismissed confirm / missing applicationId tip already shown
+                            } else if (recovery === 'cancelled' || recovery === 'reinstall_failed') {
+                                // Confirm dismissed, or uninstall already done + tip shown
                                 throw Object.assign(
                                     new Error(this.extractBuildErrorMessage(installError)),
                                     { __aslPresented: true },

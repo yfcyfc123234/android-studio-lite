@@ -85,6 +85,86 @@ fun buildTypeFromVariant(variant: Any): String {
     }
 }
 
+/** Root path is ":" — must become ":installDebug", never "::installDebug". */
+fun gradleTaskPath(projectPath: String, taskName: String): String {
+    return if (projectPath.isEmpty() || projectPath == ":") {
+        ":$taskName"
+    } else {
+        "$projectPath:$taskName"
+    }
+}
+
+fun unwrapBooleanProperty(value: Any?): Boolean? {
+    when (value) {
+        null -> return null
+        is Boolean -> return value
+    }
+    for (m in listOf("get", "getOrNull", "getOrElse")) {
+        try {
+            val method =
+                if (m == "getOrElse") {
+                    value!!.javaClass.methods.firstOrNull {
+                        it.name == m && it.parameterCount == 1
+                    } ?: continue
+                } else {
+                    value!!.javaClass.methods.firstOrNull {
+                        it.name == m && it.parameterCount == 0
+                    } ?: continue
+                }
+            val raw =
+                if (m == "getOrElse") {
+                    method.invoke(value, false)
+                } else {
+                    method.invoke(value)
+                }
+            if (raw is Boolean) return raw
+        } catch (_: Throwable) {
+        }
+    }
+    return null
+}
+
+/** Prefer Variant/BuildType debuggable; install* is only reliable for debuggable app variants. */
+fun isDebuggableVariant(variant: Any): Boolean {
+    for (m in listOf("getDebuggable", "isDebuggable", "getIsDebuggable")) {
+        try {
+            val raw = variant.javaClass.getMethod(m).invoke(variant)
+            val b = unwrapBooleanProperty(raw) ?: (raw as? Boolean)
+            if (b != null) return b
+        } catch (_: Throwable) {
+        }
+    }
+    try {
+        val buildTypeObj = variant.javaClass.getMethod("getBuildType").invoke(variant) ?: return false
+        for (m in listOf("getDebuggable", "isDebuggable", "getIsDebuggable")) {
+            try {
+                val raw = buildTypeObj.javaClass.getMethod(m).invoke(buildTypeObj)
+                val b = unwrapBooleanProperty(raw) ?: (raw as? Boolean)
+                if (b != null) return b
+            } catch (_: Throwable) {
+            }
+        }
+    } catch (_: Throwable) {
+    }
+    return false
+}
+
+fun shouldExposeInstall(project: Project, isApp: Boolean, variant: Any, variantCap: String): Boolean {
+    if (!isApp) return false
+    // Legacy ApplicationVariant.install is null when AGP did not create install*
+    try {
+        val install = variant.javaClass.getMethod("getInstall").invoke(variant)
+        if (install != null) return true
+    } catch (_: Throwable) {
+    }
+    if (isDebuggableVariant(variant)) return true
+    try {
+        if (project.tasks.findByName("install$variantCap") != null) return true
+    } catch (_: Throwable) {
+    }
+    return false
+}
+
 fun buildVariantEntry(
     projectPath: String,
     isApp: Boolean,
@@ -92,16 +172,16 @@ fun buildVariantEntry(
     buildType: String,
     flavors: List<String>,
     applicationId: String?,
+    includeInstall: Boolean,
 ): Map<String, Any?> {
     val variantCap = capitalizeVariant(name)
     val tasks = linkedMapOf<String, String>()
-    tasks["assemble"] = "$projectPath:assemble$variantCap"
-    if (isApp) {
-        // AGP creates install* for both debug and release application variants
-        tasks["install"] = "$projectPath:install$variantCap"
+    tasks["assemble"] = gradleTaskPath(projectPath, "assemble$variantCap")
+    if (includeInstall) {
+        tasks["install"] = gradleTaskPath(projectPath, "install$variantCap")
     }
     if (isApp && buildType == "release") {
-        tasks["bundle"] = "$projectPath:bundle$variantCap"
+        tasks["bundle"] = gradleTaskPath(projectPath, "bundle$variantCap")
     }
     return mapOf(
         "name" to name,
@@ -119,12 +199,23 @@ fun addCollectedVariant(project: Project, isApp: Boolean, variant: Any) {
     val applicationId =
         if (isApp) unwrapStringProperty(readNoArg(variant, listOf("getApplicationId"))) else null
     val projectPath = project.path
+    val variantCap = capitalizeVariant(name)
     moduleTypeByPath[projectPath] = if (isApp) "application" else "library"
     val list =
         collectedByPath.getOrPut(projectPath) {
             java.util.Collections.synchronizedList(mutableListOf())
         }
-    list.add(buildVariantEntry(projectPath, isApp, name, buildType, flavors, applicationId))
+    list.add(
+        buildVariantEntry(
+            projectPath,
+            isApp,
+            name,
+            buildType,
+            flavors,
+            applicationId,
+            shouldExposeInstall(project, isApp, variant, variantCap),
+        ),
+    )
 }
 
 /**
@@ -265,6 +356,7 @@ gradle.rootProject {
                                     buildType,
                                     flavorNames,
                                     applicationId,
+                                    shouldExposeInstall(project, isApp, v, capitalizeVariant(name)),
                                 ),
                             )
                         }

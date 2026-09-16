@@ -13,78 +13,109 @@ export const WORKSPACE_SELECTED_DEVICE_SERIAL = 'android-studio-lite.selectedDev
 
 export type ScreenshotSaveMode = 'file' | 'clipboard' | 'ask';
 
+export type ScreenshotTargetHint = {
+	serial?: string;
+	avdName?: string;
+};
+
 /**
  * Device screenshot capture (adb screencap), similar to Android Studio:
  * save to a folder and/or copy the PNG to the system clipboard.
  */
 export class ScreenshotService {
+	private capturing = false;
+
 	constructor(
 		private readonly manager: Manager,
 		private readonly context: vscode.ExtensionContext,
 	) {}
 
-	async takeScreenshot(preferredSerial?: string): Promise<void> {
-		const adbPath = this.getAdbPath();
-		if (!adbPath) {
-			vscode.window.showErrorMessage('ADB not found. Configure android-studio-lite.sdkPath / ANDROID_HOME.');
+	async takeScreenshot(preferred?: string | ScreenshotTargetHint): Promise<void> {
+		if (this.capturing) {
+			vscode.window.showWarningMessage('A screenshot is already in progress.');
 			return;
 		}
 
-		const serial = preferredSerial || (await this.resolveDeviceSerial(adbPath));
-		if (!serial) {
-			return;
-		}
+		const hint: ScreenshotTargetHint =
+			typeof preferred === 'string' ? { serial: preferred } : preferred || {};
 
-		const mode = await this.resolveSaveMode();
-		if (!mode) {
-			return;
-		}
+		try {
+			this.capturing = true;
+			const adbPath = this.getAdbPath();
+			if (!adbPath) {
+				vscode.window.showErrorMessage(
+					'ADB not found. Configure android-studio-lite.sdkPath / ANDROID_HOME.',
+				);
+				return;
+			}
 
-		await vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Notification,
-				title: `Capturing screenshot (${serial})…`,
-				cancellable: false,
-			},
-			async () => {
-				const png = await this.capturePng(adbPath, serial);
-				const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
-				const fileName = `Screenshot_${stamp}.png`;
+			const serial = await this.resolveDeviceSerial(adbPath, hint);
+			if (!serial) {
+				return;
+			}
 
-				if (mode === 'file') {
-					const savedPath = await this.saveToFile(png, fileName);
-					if (!savedPath) {
+			const mode = await this.resolveSaveMode();
+			if (!mode) {
+				return;
+			}
+
+			await vscode.window.withProgress(
+				{
+					location: vscode.ProgressLocation.Notification,
+					title: `Capturing screenshot (${serial})…`,
+					cancellable: false,
+				},
+				async () => {
+					const png = await this.capturePng(adbPath, serial);
+					// Keep milliseconds so rapid captures do not collide
+					const stamp = new Date()
+						.toISOString()
+						.replace(/[:.]/g, '-')
+						.replace('T', '_')
+						.replace(/Z$/, '');
+					const fileName = `Screenshot_${stamp}.png`;
+
+					if (mode === 'file') {
+						const savedPath = await this.saveToFile(png, fileName);
+						if (!savedPath) {
+							return;
+						}
+						await this.context.workspaceState.update(WORKSPACE_SELECTED_DEVICE_SERIAL, serial);
+						const open = await vscode.window.showInformationMessage(
+							`Screenshot saved: ${savedPath}`,
+							'Reveal',
+							'Copy Path',
+						);
+						if (open === 'Reveal') {
+							vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(savedPath));
+						} else if (open === 'Copy Path') {
+							await vscode.env.clipboard.writeText(savedPath);
+						}
 						return;
 					}
-					await this.context.workspaceState.update(WORKSPACE_SELECTED_DEVICE_SERIAL, serial);
-					const open = await vscode.window.showInformationMessage(
-						`Screenshot saved: ${savedPath}`,
-						'Reveal',
-						'Copy Path',
-					);
-					if (open === 'Reveal') {
-						vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(savedPath));
-					} else if (open === 'Copy Path') {
-						await vscode.env.clipboard.writeText(savedPath);
-					}
-					return;
-				}
 
-				const tempPath = path.join(os.tmpdir(), fileName);
-				fs.writeFileSync(tempPath, png);
-				try {
-					await this.copyImageToClipboard(tempPath);
-					await this.context.workspaceState.update(WORKSPACE_SELECTED_DEVICE_SERIAL, serial);
-					vscode.window.showInformationMessage('Screenshot copied to clipboard.');
-				} finally {
+					const tempPath = path.join(os.tmpdir(), fileName);
+					fs.writeFileSync(tempPath, png);
 					try {
-						fs.unlinkSync(tempPath);
-					} catch {
-						/* ignore */
+						await this.copyImageToClipboard(tempPath);
+						await this.context.workspaceState.update(WORKSPACE_SELECTED_DEVICE_SERIAL, serial);
+						vscode.window.showInformationMessage('Screenshot copied to clipboard.');
+					} finally {
+						try {
+							fs.unlinkSync(tempPath);
+						} catch {
+							/* ignore */
+						}
 					}
-				}
-			},
-		);
+				},
+			);
+		} catch (e: any) {
+			const msg = e?.message || String(e);
+			vscode.window.showErrorMessage(`Screenshot failed: ${msg}`);
+			this.manager.output.append(`[Screenshot] ${msg}`, 'error');
+		} finally {
+			this.capturing = false;
+		}
 	}
 
 	private async resolveSaveMode(): Promise<'file' | 'clipboard' | undefined> {
@@ -105,15 +136,33 @@ export class ScreenshotService {
 		return pick?.mode;
 	}
 
-	private async resolveDeviceSerial(adbPath: string): Promise<string | undefined> {
-		const saved = this.context.workspaceState.get<string>(WORKSPACE_SELECTED_DEVICE_SERIAL);
+	private async resolveDeviceSerial(
+		adbPath: string,
+		hint: ScreenshotTargetHint,
+	): Promise<string | undefined> {
 		const devices = await listOnlineAdbDevices(adbPath);
 		if (devices.length === 0) {
 			vscode.window.showErrorMessage('No online Android device/emulator. Connect a device or start an AVD.');
 			return undefined;
 		}
 
-		if (saved && devices.some(d => d.serial === saved)) {
+		if (hint.serial && devices.some((d) => d.serial === hint.serial)) {
+			return hint.serial;
+		}
+
+		if (hint.avdName) {
+			const matched = await this.findSerialForAvd(adbPath, hint.avdName, devices.map((d) => d.serial));
+			if (matched) {
+				return matched;
+			}
+			vscode.window.showErrorMessage(
+				`AVD "${hint.avdName}" is not online. Start the emulator, then take a screenshot.`,
+			);
+			return undefined;
+		}
+
+		const saved = this.context.workspaceState.get<string>(WORKSPACE_SELECTED_DEVICE_SERIAL);
+		if (saved && devices.some((d) => d.serial === saved)) {
 			return saved;
 		}
 
@@ -122,7 +171,7 @@ export class ScreenshotService {
 		}
 
 		const pick = await vscode.window.showQuickPick(
-			devices.map(d => ({
+			devices.map((d) => ({
 				label: formatAdbDeviceLabel(d),
 				description: d.serial,
 				serial: d.serial,
@@ -130,6 +179,33 @@ export class ScreenshotService {
 			{ placeHolder: 'Select device for screenshot' },
 		);
 		return pick?.serial;
+	}
+
+	/** Match a running emulator serial to an AVD name via `adb emu avd name`. */
+	private async findSerialForAvd(
+		adbPath: string,
+		avdName: string,
+		serials: string[],
+	): Promise<string | undefined> {
+		const want = avdName.trim();
+		for (const serial of serials) {
+			if (!serial.startsWith('emulator-')) {
+				continue;
+			}
+			try {
+				const { stdout } = await execFileAsync(adbPath, ['-s', serial, 'emu', 'avd', 'name'], {
+					timeout: 5000,
+					windowsHide: true,
+				});
+				const name = (stdout || '').split(/\r?\n/).map((l) => l.trim()).find((l) => l && l !== 'OK');
+				if (name === want) {
+					return serial;
+				}
+			} catch {
+				/* try next */
+			}
+		}
+		return undefined;
 	}
 
 	private capturePng(adbPath: string, serial: string): Promise<Buffer> {
@@ -148,7 +224,6 @@ export class ScreenshotService {
 					reject(new Error(Buffer.concat(errChunks).toString('utf8') || `screencap failed (code ${code})`));
 					return;
 				}
-				// PNG magic
 				if (buf[0] !== 0x89 || buf[1] !== 0x50) {
 					reject(new Error('screencap did not return a PNG. Is the device unlocked / screen on?'));
 					return;
@@ -167,7 +242,12 @@ export class ScreenshotService {
 			return undefined;
 		}
 		const full = path.join(dir, fileName);
-		fs.writeFileSync(full, png);
+		try {
+			fs.writeFileSync(full, png);
+		} catch (e: any) {
+			vscode.window.showErrorMessage(`Cannot write screenshot: ${full}\n${e?.message || e}`);
+			return undefined;
+		}
 		return full;
 	}
 
@@ -210,17 +290,36 @@ try {
 			return;
 		}
 
-		// Linux: prefer xclip, then wl-copy
+		// Linux: prefer xclip, then wl-copy with PNG on stdin
 		try {
 			await execFileAsync('xclip', ['-selection', 'clipboard', '-t', 'image/png', '-i', abs], {
 				timeout: 20000,
 			});
+			return;
 		} catch {
-			await execFileAsync('wl-copy', ['-t', 'image/png'], {
-				timeout: 20000,
-				input: fs.readFileSync(abs),
-			} as any);
+			/* fall through to wl-copy */
 		}
+
+		await new Promise<void>((resolve, reject) => {
+			const child = cp.spawn('wl-copy', ['-t', 'image/png'], { windowsHide: true });
+			const errChunks: Buffer[] = [];
+			child.stderr.on('data', (d: Buffer) => errChunks.push(d));
+			child.on('error', reject);
+			child.on('close', (code) => {
+				if (code === 0) {
+					resolve();
+				} else {
+					reject(
+						new Error(
+							Buffer.concat(errChunks).toString('utf8') ||
+								`wl-copy failed (code ${code}). Install xclip or wl-clipboard.`,
+						),
+					);
+				}
+			});
+			child.stdin.on('error', reject);
+			child.stdin.end(fs.readFileSync(abs));
+		});
 	}
 
 	private getAdbPath(): string | null {
