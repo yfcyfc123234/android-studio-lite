@@ -4,10 +4,15 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.22] - 2026-09-16
+
+### Changed
+- **UI language:** Run recovery dialogs stay English to match the rest of the extension (Cancel/Copy/OK, etc.). Keep versionCode on-device vs installing for VERSION_DOWNGRADE.
+
 ## [0.0.21] - 2026-09-16
 
 ### Changed
-- **VERSION_DOWNGRADE dialog:** Parse and show installed vs attempted `versionCode`; soften Chinese copy (口语一点，少“系统禁止”腔).
+- **VERSION_DOWNGRADE dialog:** Parse and show installed vs attempted `versionCode` in the confirm dialog.
 
 ## [0.0.20] - 2026-09-16
 

@@ -97,8 +97,8 @@ function buildHtml(opts: ThemedConfirmOptions): string {
       <div class="row">
         <span class="label">${escapeHtml(d.label)}</span>
         <div class="value-wrap">
-          <code class="value copyable" data-copy="${escapeAttr(d.value)}" title="点击复制">${escapeHtml(d.value)}</code>
-          <button type="button" class="btn-copy" data-copy="${escapeAttr(d.value)}" data-hint="detail-${i}" title="复制">复制</button>
+          <code class="value copyable" data-copy="${escapeAttr(d.value)}" title="Click to copy">${escapeHtml(d.value)}</code>
+          <button type="button" class="btn-copy" data-copy="${escapeAttr(d.value)}" data-hint="detail-${i}" title="Copy">Copy</button>
         </div>
       </div>`,
         )
@@ -106,8 +106,8 @@ function buildHtml(opts: ThemedConfirmOptions): string {
 
     const codeHtml = opts.code
         ? `<div class="code-row">
-        <button type="button" class="code-chip copyable" data-copy="${escapeAttr(opts.code)}" title="点击复制">${escapeHtml(opts.code)}</button>
-        <button type="button" class="btn-copy" data-copy="${escapeAttr(opts.code)}" title="复制错误码">复制</button>
+        <button type="button" class="code-chip copyable" data-copy="${escapeAttr(opts.code)}" title="Click to copy">${escapeHtml(opts.code)}</button>
+        <button type="button" class="btn-copy" data-copy="${escapeAttr(opts.code)}" title="Copy error code">Copy</button>
       </div>`
         : '';
     const promptHtml = opts.prompt
@@ -118,7 +118,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
         : '';
 
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -209,7 +209,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
   }
   .row {
     display: grid;
-    grid-template-columns: 72px 1fr;
+    grid-template-columns: 88px 1fr;
     gap: 8px;
     align-items: center;
     margin: 0 0 8px;
@@ -334,7 +334,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     </div>
     <div class="footer">
       <div class="footer-left">
-        <button type="button" class="btn secondary" id="btn-copy-all" title="复制标题、说明、错误码与详情">复制全部</button>
+        <button type="button" class="btn secondary" id="btn-copy-all" title="Copy heading, message, code, and details">Copy all</button>
       </div>
       <div class="footer-right">
         ${secondaryHtml}
@@ -342,7 +342,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
       </div>
     </div>
   </div>
-  <div class="toast" id="toast">已复制</div>
+  <div class="toast" id="toast">Copied</div>
   <script>
     const vscode = acquireVsCodeApi();
     const toast = document.getElementById('toast');
@@ -353,7 +353,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
       el.classList.add('copied');
       if (el.tagName === 'BUTTON' && el.classList.contains('btn-copy')) {
         const prev = el.textContent;
-        el.textContent = '已复制';
+        el.textContent = 'Copied';
         setTimeout(() => {
           el.classList.remove('copied');
           el.textContent = prev;
@@ -477,7 +477,7 @@ export async function showThemedAlert(
 ): Promise<void> {
     await showThemedConfirm({
         ...opts,
-        primaryLabel: opts.primaryLabel || '知道了',
+        primaryLabel: opts.primaryLabel || 'OK',
         secondaryLabel: undefined,
     });
 }
