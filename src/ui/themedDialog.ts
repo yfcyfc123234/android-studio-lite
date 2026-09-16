@@ -1,9 +1,13 @@
 /**
  * Themed confirm/alert dialogs via WebviewPanel.
  *
- * Native `showWarningMessage({ modal: true })` on Windows often renders as a
- * light OS-style box and does not follow the editor color theme. This helper
- * uses VS Code CSS variables so the dialog matches light/dark/high-contrast.
+ * VS Code/Cursor has no API for a true floating, theme-aware OS modal from
+ * extensions. Native `showWarningMessage({ modal: true })` is a real popup but
+ * on Windows often paints as a light system box and ignores the editor theme.
+ *
+ * We therefore open a short-lived WebviewPanel and render a centered dialog
+ * card on a dimmed backdrop so it reads as a modal while still using
+ * `--vscode-*` colors. The editor tab chrome is a platform limit, not styling.
  *
  * Text is selectable; error code / detail values / full summary support one-click copy.
  */
@@ -130,49 +134,73 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     margin: 0;
     padding: 0;
     height: 100%;
-    background: var(--vscode-editor-background);
+    background: transparent;
     color: var(--vscode-foreground);
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size, 13px);
     user-select: text;
     -webkit-user-select: text;
   }
-  .shell {
+  /* Dimmed stage — closest we can get to a floating modal inside a webview tab */
+  .backdrop {
     box-sizing: border-box;
     min-height: 100%;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 20px;
+    background: color-mix(in srgb, var(--vscode-editor-background) 55%, #000 45%);
+  }
+  @supports not (background: color-mix(in srgb, #000 50%, #fff 50%)) {
+    .backdrop {
+      background: rgba(0, 0, 0, 0.45);
+    }
+  }
+  .dialog {
+    box-sizing: border-box;
+    width: min(480px, 100%);
+    max-height: calc(100vh - 56px);
+    display: flex;
     flex-direction: column;
-    padding: 20px 22px 16px;
+    padding: 18px 18px 14px;
+    border-radius: 8px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, transparent));
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--vscode-widget-shadow, #000) 20%, transparent),
+      0 12px 40px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.45));
+    overflow: auto;
   }
   .header {
     display: flex;
-    gap: 14px;
+    gap: 12px;
     align-items: flex-start;
   }
   .icon {
     flex: 0 0 auto;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     display: grid;
     place-items: center;
     font-weight: 700;
-    font-size: 16px;
+    font-size: 15px;
     color: var(--vscode-editor-background);
     background: ${accent};
     line-height: 1;
-    margin-top: 2px;
+    margin-top: 1px;
     user-select: none;
   }
   .content { flex: 1; min-width: 0; }
   h1 {
-    margin: 0 0 10px;
-    font-size: 15px;
+    margin: 0 0 8px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.35;
   }
   .message {
-    margin: 0 0 12px;
+    margin: 0 0 10px;
     color: var(--vscode-descriptionForeground);
     line-height: 1.5;
     white-space: pre-wrap;
@@ -181,7 +209,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 12px;
+    margin: 0 0 10px;
     flex-wrap: wrap;
   }
   .code-chip {
@@ -201,8 +229,8 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     filter: brightness(1.08);
   }
   .details {
-    margin: 0 0 14px;
-    padding: 10px 12px;
+    margin: 0 0 12px;
+    padding: 8px 10px;
     border-radius: 6px;
     background: var(--vscode-textBlockQuote-background, var(--vscode-sideBar-background));
     border: 1px solid var(--vscode-panel-border, transparent);
@@ -212,7 +240,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     grid-template-columns: 88px 1fr;
     gap: 8px;
     align-items: center;
-    margin: 0 0 8px;
+    margin: 0 0 6px;
   }
   .row:last-child { margin-bottom: 0; }
   .label {
@@ -275,11 +303,12 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     pointer-events: none;
     transition: opacity 0.15s ease;
     user-select: none;
+    z-index: 2;
   }
   .toast.show { opacity: 1; }
   .footer {
-    margin-top: auto;
-    padding-top: 18px;
+    margin-top: 14px;
+    padding-top: 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -321,24 +350,26 @@ function buildHtml(opts: ThemedConfirmOptions): string {
 </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="header">
-      <div class="icon" aria-hidden="true">!</div>
-      <div class="content">
-        <h1>${escapeHtml(opts.heading)}</h1>
-        <p class="message">${escapeHtml(opts.message)}</p>
-        ${codeHtml}
-        ${detailsHtml ? `<div class="details">${detailsHtml}</div>` : ''}
-        ${promptHtml}
+  <div class="backdrop" id="backdrop">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <div class="header">
+        <div class="icon" aria-hidden="true">!</div>
+        <div class="content">
+          <h1 id="dialog-title">${escapeHtml(opts.heading)}</h1>
+          <p class="message">${escapeHtml(opts.message)}</p>
+          ${codeHtml}
+          ${detailsHtml ? `<div class="details">${detailsHtml}</div>` : ''}
+          ${promptHtml}
+        </div>
       </div>
-    </div>
-    <div class="footer">
-      <div class="footer-left">
-        <button type="button" class="btn secondary" id="btn-copy-all" title="Copy heading, message, code, and details">Copy all</button>
-      </div>
-      <div class="footer-right">
-        ${secondaryHtml}
-        <button type="button" class="btn primary" id="btn-primary">${escapeHtml(opts.primaryLabel)}</button>
+      <div class="footer">
+        <div class="footer-left">
+          <button type="button" class="btn secondary" id="btn-copy-all" title="Copy heading, message, code, and details">Copy all</button>
+        </div>
+        <div class="footer-right">
+          ${secondaryHtml}
+          <button type="button" class="btn primary" id="btn-primary">${escapeHtml(opts.primaryLabel)}</button>
+        </div>
       </div>
     </div>
   </div>
@@ -383,6 +414,12 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     document.getElementById('btn-copy-all')?.addEventListener('click', (e) => {
       vscode.postMessage({ type: 'copy-all' });
       flashCopied(e.currentTarget);
+    });
+    // Click dimmed area (not the card) → Cancel, like a modal backdrop
+    document.getElementById('backdrop')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) {
+        vscode.postMessage({ type: 'secondary' });
+      }
     });
 
     document.querySelectorAll('[data-copy]').forEach((el) => {
