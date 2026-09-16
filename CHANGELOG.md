@@ -4,6 +4,11 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.21] - 2026-09-16
+
+### Changed
+- **VERSION_DOWNGRADE dialog:** Parse and show installed vs attempted `versionCode`; soften Chinese copy (口语一点，少“系统禁止”腔).
+
 ## [0.0.20] - 2026-09-16
 
 ### Added

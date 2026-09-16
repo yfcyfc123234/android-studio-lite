@@ -36,6 +36,45 @@ export interface PlainAction {
 
 export type RunErrorAction = UninstallReinstallAction | TipAction | PlainAction;
 
+/** Parsed from INSTALL_FAILED_VERSION_DOWNGRADE adb/Gradle text. */
+export interface VersionDowngradeInfo {
+    /** versionCode already on device */
+    installedVersionCode: string;
+    /** versionCode of the APK we tried to install */
+    attemptedVersionCode: string;
+}
+
+/**
+ * Extract installed vs attempted versionCode from common adb downgrade messages, e.g.
+ * `Downgrade detected: Update version code 2026082001 is older than current 2026083101`
+ */
+export function parseVersionDowngrade(errorText: string): VersionDowngradeInfo | null {
+    if (!errorText || !errorText.includes('INSTALL_FAILED_VERSION_DOWNGRADE')) {
+        return null;
+    }
+    // Primary: "Update version code X is older than current Y"
+    let m = errorText.match(
+        /Update\s+version\s*code\s+(\d+)\s+is\s+older\s+than\s+current\s+(\d+)/i,
+    );
+    if (m) {
+        return { attemptedVersionCode: m[1], installedVersionCode: m[2] };
+    }
+    // Alternate: "current Y ... update X" / "versionCode X ... current Y"
+    m = errorText.match(
+        /(?:current|installed)\s+(?:version\s*code\s+)?(\d+)[\s\S]{0,80}?(?:update|new|installing)\s+(?:version\s*code\s+)?(\d+)/i,
+    );
+    if (m) {
+        return { installedVersionCode: m[1], attemptedVersionCode: m[2] };
+    }
+    m = errorText.match(
+        /version\s*code\s+(\d+)[\s\S]{0,60}?older\s+than[\s\S]{0,40}?(\d+)/i,
+    );
+    if (m) {
+        return { attemptedVersionCode: m[1], installedVersionCode: m[2] };
+    }
+    return null;
+}
+
 interface PatternRule {
     /** Substring or RegExp tested against the full error text */
     match: string | RegExp;
@@ -52,7 +91,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_VERSION_DOWNGRADE',
         action: {
             code: 'INSTALL_FAILED_VERSION_DOWNGRADE',
-            summary: '设备上已有更高版本，系统禁止降级安装。',
+            summary: '设备上已经装了更新的版本，不能直接覆盖成更旧的包。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -298,28 +337,58 @@ export async function tryRecoverInstallFailure(ctx: InstallRecoveryContext): Pro
     if (action.kind !== 'uninstall_reinstall') {
         return 'unhandled';
     }
+
+    const errText = errorTextOf(ctx.error);
+    const downgrade = action.code === 'INSTALL_FAILED_VERSION_DOWNGRADE'
+        ? parseVersionDowngrade(errText)
+        : null;
+
+    let message = action.summary;
+    if (downgrade) {
+        message =
+            `设备上的版本更新，不能直接覆盖安装更旧的包。\n` +
+            `已安装 versionCode ${downgrade.installedVersionCode}，` +
+            `本次想装 ${downgrade.attemptedVersionCode}。`;
+    }
+
     if (!ctx.applicationId) {
         await showThemedAlert({
             title: '安装失败',
-            heading: '无法自动卸载重装',
-            message: `${action.summary}\n\n缺少 applicationId，无法自动卸载。请先在设备上手动卸载该应用，再重新 Run。`,
+            heading: '没法自动卸载重装',
+            message:
+                `${message}\n\n缺少 applicationId，插件没法自动卸载。` +
+                `请先在设备上手动卸掉这个应用，再重新 Run。`,
             code: action.code,
+            details: downgrade
+                ? [
+                    { label: '设备上', value: `versionCode ${downgrade.installedVersionCode}` },
+                    { label: '本次安装', value: `versionCode ${downgrade.attemptedVersionCode}` },
+                ]
+                : undefined,
             severity: 'warning',
             primaryLabel: '知道了',
         });
         return 'cancelled';
     }
 
+    const details = [
+        { label: '包名', value: ctx.applicationId },
+        ...(downgrade
+            ? [
+                { label: '设备上', value: `versionCode ${downgrade.installedVersionCode}` },
+                { label: '本次安装', value: `versionCode ${downgrade.attemptedVersionCode}` },
+            ]
+            : []),
+        ...(ctx.targetLabel ? [{ label: '目标', value: ctx.targetLabel }] : []),
+    ];
+
     const choice = await showThemedConfirm({
         title: '安装冲突',
-        heading: '应用未能安装到设备',
-        message: action.summary,
+        heading: '应用没能装到设备上',
+        message,
         code: action.code,
-        details: [
-            { label: '包名', value: ctx.applicationId },
-            ...(ctx.targetLabel ? [{ label: '目标', value: ctx.targetLabel }] : []),
-        ],
-        prompt: '是否卸载设备上的现有应用并重新安装？',
+        details,
+        prompt: '要不要先卸掉设备上的现有应用，再重新安装？',
         primaryLabel: action.confirmLabel,
         secondaryLabel: '取消',
         severity: 'warning',

@@ -209,7 +209,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
   }
   .row {
     display: grid;
-    grid-template-columns: 56px 1fr;
+    grid-template-columns: 72px 1fr;
     gap: 8px;
     align-items: center;
     margin: 0 0 8px;
