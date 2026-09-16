@@ -11,12 +11,17 @@ import { formatAdbDeviceLabel, listOnlineAdbDevices } from '../utils/adbDevices.
 
 /** Unified run target shown in the device dropdown. */
 export interface RunTarget {
+    /** physical:<serial> | emulator:<serial> | avd:<name> */
     id: string;
-    kind: 'physical' | 'avd';
+    kind: 'physical' | 'emulator' | 'avd';
     label: string;
     serial?: string;
     avdName?: string;
 }
+
+const SELECTED_TARGET_ID_KEY = 'android-studio-lite.selectedTargetId';
+const SAFE_ADB_SERIAL = /^[A-Za-z0-9._:-]+$/;
+const SAFE_APPLICATION_ID = /^[A-Za-z0-9._]+$/;
 
 export interface AVDSelectorWebviewState extends WebviewState {
     targets?: RunTarget[];
@@ -34,6 +39,8 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
     private readonly manager: Manager;
     private buildCancellationTokens = new Map<string, CancellationTokenSource>();
     private logcatActive: boolean = false;
+    /** Last target id chosen in the sidebar (survives target list refreshes). */
+    private selectedTargetId: string | undefined;
 
     constructor(
         private readonly host: WebviewHost,
@@ -41,6 +48,7 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         private readonly logcatAvailable: boolean = false,
     ) {
         this.manager = Manager.getInstance();
+        this.selectedTargetId = this.context.workspaceState.get<string>(SELECTED_TARGET_ID_KEY);
         this.disposables.push(
             workspace.onDidChangeWorkspaceFolders(async () => {
                 const isAndroidProject = this.manager.buildVariant.isAndroidProject();
@@ -63,7 +71,13 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
     async includeBootstrap(): Promise<AVDSelectorWebviewState> {
         const targets = await this.buildRunTargets();
-        const selectedTargetId = this.pickDefaultTargetId(targets);
+        const saved =
+            this.selectedTargetId ||
+            this.context.workspaceState.get<string>(SELECTED_TARGET_ID_KEY);
+        const selectedTargetId =
+            (saved && targets.some(t => t.id === saved) ? saved : undefined) ||
+            this.pickDefaultTargetId(targets);
+        this.selectedTargetId = selectedTargetId;
 
         const isAndroidProject = this.manager.buildVariant.isAndroidProject();
 
@@ -115,12 +129,12 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         } else if (e.type === 'select-target' || e.type === 'select-avd') {
             const targetId = e.params?.targetId || (e.params?.avdName ? `avd:${e.params.avdName}` : undefined);
             if (targetId) {
+                this.selectedTargetId = targetId;
+                void this.context.workspaceState.update(SELECTED_TARGET_ID_KEY, targetId);
                 void this.host.notify('target-selected', { targetId });
-                if (typeof targetId === 'string' && targetId.startsWith('physical:')) {
-                    void this.context.workspaceState.update(
-                        WORKSPACE_SELECTED_DEVICE_SERIAL,
-                        targetId.slice('physical:'.length),
-                    );
+                if (typeof targetId === 'string' && (targetId.startsWith('physical:') || targetId.startsWith('emulator:'))) {
+                    const serial = targetId.slice(targetId.indexOf(':') + 1);
+                    void this.context.workspaceState.update(WORKSPACE_SELECTED_DEVICE_SERIAL, serial);
                 }
             }
         } else if (e.type === 'select-module') {
@@ -149,15 +163,23 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             cancellationToken,
         } = params || {};
 
-        const kind: 'physical' | 'avd' =
+        const kind: 'physical' | 'emulator' | 'avd' =
             kindParam ||
-            (typeof targetId === 'string' && targetId.startsWith('physical:') ? 'physical' : 'avd');
+            (typeof targetId === 'string' && targetId.startsWith('physical:')
+                ? 'physical'
+                : typeof targetId === 'string' && targetId.startsWith('emulator:')
+                    ? 'emulator'
+                    : 'avd');
         const resolvedAvdName = avdName ||
             (typeof targetId === 'string' && targetId.startsWith('avd:') ? targetId.slice(4) : undefined);
         const serial = serialParam ||
-            (typeof targetId === 'string' && targetId.startsWith('physical:') ? targetId.slice(9) : undefined);
+            (typeof targetId === 'string' && targetId.startsWith('physical:')
+                ? targetId.slice('physical:'.length)
+                : typeof targetId === 'string' && targetId.startsWith('emulator:')
+                    ? targetId.slice('emulator:'.length)
+                    : undefined);
 
-        if (!moduleName || (kind === 'avd' && !resolvedAvdName) || (kind === 'physical' && !serial)) {
+        if (!moduleName || (kind === 'avd' && !resolvedAvdName) || ((kind === 'physical' || kind === 'emulator') && !serial)) {
             await this.host.notify('build-failed', { error: 'Device and Module must be selected' });
             return;
         }
@@ -203,7 +225,9 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 return;
             }
 
-            const targetLabel = kind === 'physical' ? (serial as string) : (resolvedAvdName as string);
+            const targetLabel = (kind === 'physical' || kind === 'emulator')
+                ? (serial as string)
+                : (resolvedAvdName as string);
 
             await window.withProgress(
                 {
@@ -220,7 +244,7 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                     try {
                         let deviceSerial: string;
 
-                        if (kind === 'physical') {
+                        if (kind === 'physical' || kind === 'emulator') {
                             progress.report({ increment: 10, message: `Using device ${serial}...` });
                             deviceSerial = serial as string;
                             await this.context.workspaceState.update(
@@ -434,24 +458,31 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         if (!sdkPath) {
             throw new Error('SDK path not configured');
         }
+        if (!SAFE_APPLICATION_ID.test(applicationId)) {
+            throw new Error(`Invalid applicationId: ${applicationId}`);
+        }
+        if (serial && !SAFE_ADB_SERIAL.test(serial)) {
+            throw new Error(`Invalid device serial: ${serial}`);
+        }
 
-        const path = await import('path');
-        const platformToolsPath = path.join(sdkPath, 'platform-tools');
-        const adbPath = path.join(platformToolsPath, process.platform === 'win32' ? 'adb.exe' : 'adb');
+        const pathMod = await import('path');
+        const platformToolsPath = pathMod.join(sdkPath, 'platform-tools');
+        const adbPath = pathMod.join(platformToolsPath, process.platform === 'win32' ? 'adb.exe' : 'adb');
 
         console.log(`[AVDSelectorProvider] Launching app with applicationId: ${applicationId}`);
 
-        const serialArg = serial ? `-s ${serial} ` : '';
-        const launchCommand = `"${adbPath}" ${serialArg}shell monkey -p ${applicationId} -c android.intent.category.LAUNCHER 1`;
+        const args = serial
+            ? ['-s', serial, 'shell', 'monkey', '-p', applicationId, '-c', 'android.intent.category.LAUNCHER', '1']
+            : ['shell', 'monkey', '-p', applicationId, '-c', 'android.intent.category.LAUNCHER', '1'];
+
         try {
-            const { exec } = await import('child_process');
+            const { execFile } = await import('child_process');
             const { promisify } = await import('util');
-            const execAsync = promisify(exec);
-            const result = await execAsync(launchCommand);
+            const execFileAsync = promisify(execFile);
+            const result = await execFileAsync(adbPath, args, { windowsHide: true, timeout: 30000 });
             console.log(`[AVDSelectorProvider] App launch command output: ${result.stdout}`);
         } catch (error: any) {
-            // Check if it's just a warning about monkey
-            if (error.stdout && !error.stdout.includes('Error')) {
+            if (error.stdout && !String(error.stdout).includes('Error')) {
                 console.log(`[AVDSelectorProvider] App launched (monkey output): ${error.stdout}`);
                 return;
             }
@@ -604,6 +635,10 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         if (physical) {
             return physical.id;
         }
+        const emulator = targets.find(t => t.kind === 'emulator');
+        if (emulator) {
+            return emulator.id;
+        }
         return targets[0]?.id;
     }
 
@@ -615,12 +650,21 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             try {
                 const online = await listOnlineAdbDevices(adbPath);
                 for (const d of online) {
-                    targets.push({
-                        id: `physical:${d.serial}`,
-                        kind: 'physical',
-                        label: formatAdbDeviceLabel(d),
-                        serial: d.serial,
-                    });
+                    if (d.kind === 'emulator') {
+                        targets.push({
+                            id: `emulator:${d.serial}`,
+                            kind: 'emulator',
+                            label: formatAdbDeviceLabel(d),
+                            serial: d.serial,
+                        });
+                    } else {
+                        targets.push({
+                            id: `physical:${d.serial}`,
+                            kind: 'physical',
+                            label: formatAdbDeviceLabel(d),
+                            serial: d.serial,
+                        });
+                    }
                 }
             } catch (error) {
                 console.error('[AVDSelectorProvider] Failed to list adb devices:', error);
@@ -646,7 +690,13 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
     private async sendTargets(): Promise<void> {
         const targets = await this.buildRunTargets();
-        const selectedTargetId = this.pickDefaultTargetId(targets);
+        const saved =
+            this.selectedTargetId ||
+            this.context.workspaceState.get<string>(SELECTED_TARGET_ID_KEY);
+        const selectedTargetId =
+            (saved && targets.some(t => t.id === saved) ? saved : undefined) ||
+            this.pickDefaultTargetId(targets);
+        this.selectedTargetId = selectedTargetId;
         await this.host.notify('update-targets', { targets, selectedTargetId });
     }
 

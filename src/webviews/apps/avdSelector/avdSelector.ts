@@ -22,11 +22,11 @@ const progressSpinnerIcon = `<svg width="16" height="16" viewBox="0 0 16 16" fil
 <rect x="1.63599" y="3.05025" width="2" height="5" rx="1" transform="rotate(-45 1.63599 3.05025)" fill="white" fill-opacity="0.7"/>
 </svg>`;
 
-/** Unified run target: online physical device or local AVD. */
+/** Unified run target: online device (physical/emulator) or local AVD. */
 export interface RunTarget {
-    /** physical:<serial> | avd:<name> */
+    /** physical:<serial> | emulator:<serial> | avd:<name> */
     id: string;
-    kind: 'physical' | 'avd';
+    kind: 'physical' | 'emulator' | 'avd';
     label: string;
     serial?: string;
     avdName?: string;
@@ -165,16 +165,17 @@ export class ASlAVDSelectorApp extends ASlElement {
 
     private applyTargets(targets: RunTarget[], preferredId?: string) {
         this.targets = targets || [];
+        // Keep the user's current selection across refreshes when it is still valid.
+        if (this.selectedTargetId && this.targets.some(t => t.id === this.selectedTargetId)) {
+            return;
+        }
         if (preferredId && this.targets.some(t => t.id === preferredId)) {
             this.selectedTargetId = preferredId;
             return;
         }
-        if (this.selectedTargetId && this.targets.some(t => t.id === this.selectedTargetId)) {
-            return;
-        }
-        // Prefer an online physical device when present
         const physical = this.targets.find(t => t.kind === 'physical');
-        this.selectedTargetId = physical?.id || this.targets[0]?.id || '';
+        const emulator = this.targets.find(t => t.kind === 'emulator');
+        this.selectedTargetId = physical?.id || emulator?.id || this.targets[0]?.id || '';
     }
 
     private handleTargetChange(e: CustomEvent) {
