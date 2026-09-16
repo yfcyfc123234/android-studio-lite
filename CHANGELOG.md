@@ -4,6 +4,11 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-09-16
+
+### Added
+- **Copyable Run dialogs:** Error code / package / target are click-to-copy; each row has a 复制 button; footer 复制全部 copies the full summary. Text remains selectable.
+
 ## [0.0.19] - 2026-09-16
 
 ### Changed

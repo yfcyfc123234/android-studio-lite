@@ -4,11 +4,14 @@
  * Native `showWarningMessage({ modal: true })` on Windows often renders as a
  * light OS-style box and does not follow the editor color theme. This helper
  * uses VS Code CSS variables so the dialog matches light/dark/high-contrast.
+ *
+ * Text is selectable; error code / detail values / full summary support one-click copy.
  */
 
 import {
     Uri,
     ViewColumn,
+    env,
     window,
     type Disposable,
     type WebviewPanel,
@@ -67,20 +70,45 @@ function escapeHtml(text: string): string {
         .replace(/"/g, '&quot;');
 }
 
+/** Attr-safe payload for data-copy (still HTML-escaped). */
+function escapeAttr(text: string): string {
+    return escapeHtml(text).replace(/'/g, '&#39;');
+}
+
+function buildCopySummary(opts: ThemedConfirmOptions): string {
+    const lines = [opts.heading, opts.message];
+    if (opts.code) {
+        lines.push(opts.code);
+    }
+    for (const d of opts.details ?? []) {
+        lines.push(`${d.label}: ${d.value}`);
+    }
+    if (opts.prompt) {
+        lines.push(opts.prompt);
+    }
+    return lines.filter(Boolean).join('\n');
+}
+
 function buildHtml(opts: ThemedConfirmOptions): string {
     const accent = severityAccent(opts.severity ?? 'warning');
     const detailsHtml = (opts.details ?? [])
         .map(
-            (d) => `
+            (d, i) => `
       <div class="row">
         <span class="label">${escapeHtml(d.label)}</span>
-        <code class="value">${escapeHtml(d.value)}</code>
+        <div class="value-wrap">
+          <code class="value copyable" data-copy="${escapeAttr(d.value)}" title="点击复制">${escapeHtml(d.value)}</code>
+          <button type="button" class="btn-copy" data-copy="${escapeAttr(d.value)}" data-hint="detail-${i}" title="复制">复制</button>
+        </div>
       </div>`,
         )
         .join('');
 
     const codeHtml = opts.code
-        ? `<div class="code-chip">${escapeHtml(opts.code)}</div>`
+        ? `<div class="code-row">
+        <button type="button" class="code-chip copyable" data-copy="${escapeAttr(opts.code)}" title="点击复制">${escapeHtml(opts.code)}</button>
+        <button type="button" class="btn-copy" data-copy="${escapeAttr(opts.code)}" title="复制错误码">复制</button>
+      </div>`
         : '';
     const promptHtml = opts.prompt
         ? `<p class="prompt">${escapeHtml(opts.prompt)}</p>`
@@ -106,6 +134,8 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     color: var(--vscode-foreground);
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size, 13px);
+    user-select: text;
+    -webkit-user-select: text;
   }
   .shell {
     box-sizing: border-box;
@@ -132,6 +162,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     background: ${accent};
     line-height: 1;
     margin-top: 2px;
+    user-select: none;
   }
   .content { flex: 1; min-width: 0; }
   h1 {
@@ -144,10 +175,19 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     margin: 0 0 12px;
     color: var(--vscode-descriptionForeground);
     line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .code-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+    flex-wrap: wrap;
   }
   .code-chip {
+    appearance: none;
     display: inline-block;
-    margin: 0 0 12px;
+    margin: 0;
     padding: 3px 8px;
     border-radius: 4px;
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
@@ -155,6 +195,10 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     background: var(--vscode-badge-background);
     color: var(--vscode-badge-foreground);
     border: 1px solid var(--vscode-panel-border, transparent);
+    cursor: pointer;
+  }
+  .code-chip:hover {
+    filter: brightness(1.08);
   }
   .details {
     margin: 0 0 14px;
@@ -165,15 +209,21 @@ function buildHtml(opts: ThemedConfirmOptions): string {
   }
   .row {
     display: grid;
-    grid-template-columns: 72px 1fr;
+    grid-template-columns: 56px 1fr;
     gap: 8px;
-    align-items: baseline;
-    margin: 0 0 6px;
+    align-items: center;
+    margin: 0 0 8px;
   }
   .row:last-child { margin-bottom: 0; }
   .label {
     color: var(--vscode-descriptionForeground);
     font-size: 12px;
+  }
+  .value-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
   .value {
     font-family: var(--vscode-editor-font-family, Consolas, monospace);
@@ -181,19 +231,66 @@ function buildHtml(opts: ThemedConfirmOptions): string {
     word-break: break-all;
     background: transparent;
     color: var(--vscode-foreground);
+    cursor: pointer;
+  }
+  .value:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .btn-copy {
+    appearance: none;
+    flex: 0 0 auto;
+    border: 1px solid var(--vscode-button-secondaryBackground, var(--vscode-panel-border));
+    border-radius: 2px;
+    padding: 2px 8px;
+    font-size: 11px;
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    cursor: pointer;
+    user-select: none;
+  }
+  .btn-copy:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+  }
+  .btn-copy.copied {
+    border-color: var(--vscode-textLink-foreground, #3794ff);
+    color: var(--vscode-textLink-foreground, #3794ff);
   }
   .prompt {
     margin: 0;
     font-weight: 500;
     line-height: 1.45;
   }
+  .toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+    color: var(--vscode-notifications-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-notifications-border, var(--vscode-panel-border));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    user-select: none;
+  }
+  .toast.show { opacity: 1; }
   .footer {
     margin-top: auto;
     padding-top: 18px;
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     gap: 8px;
     border-top: 1px solid var(--vscode-panel-border, transparent);
+    user-select: none;
+  }
+  .footer-left, .footer-right {
+    display: flex;
+    gap: 8px;
+    align-items: center;
   }
   .btn {
     appearance: none;
@@ -236,21 +333,74 @@ function buildHtml(opts: ThemedConfirmOptions): string {
       </div>
     </div>
     <div class="footer">
-      ${secondaryHtml}
-      <button type="button" class="btn primary" id="btn-primary">${escapeHtml(opts.primaryLabel)}</button>
+      <div class="footer-left">
+        <button type="button" class="btn secondary" id="btn-copy-all" title="复制标题、说明、错误码与详情">复制全部</button>
+      </div>
+      <div class="footer-right">
+        ${secondaryHtml}
+        <button type="button" class="btn primary" id="btn-primary">${escapeHtml(opts.primaryLabel)}</button>
+      </div>
     </div>
   </div>
+  <div class="toast" id="toast">已复制</div>
   <script>
     const vscode = acquireVsCodeApi();
+    const toast = document.getElementById('toast');
+    let toastTimer;
+
+    function flashCopied(el) {
+      if (!el) return;
+      el.classList.add('copied');
+      if (el.tagName === 'BUTTON' && el.classList.contains('btn-copy')) {
+        const prev = el.textContent;
+        el.textContent = '已复制';
+        setTimeout(() => {
+          el.classList.remove('copied');
+          el.textContent = prev;
+        }, 900);
+      } else {
+        setTimeout(() => el.classList.remove('copied'), 900);
+      }
+      if (toast) {
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 900);
+      }
+    }
+
+    function requestCopy(text, el) {
+      if (!text) return;
+      vscode.postMessage({ type: 'copy', text });
+      flashCopied(el);
+    }
+
     document.getElementById('btn-primary')?.addEventListener('click', () => {
       vscode.postMessage({ type: 'primary' });
     });
     document.getElementById('btn-secondary')?.addEventListener('click', () => {
       vscode.postMessage({ type: 'secondary' });
     });
+    document.getElementById('btn-copy-all')?.addEventListener('click', (e) => {
+      vscode.postMessage({ type: 'copy-all' });
+      flashCopied(e.currentTarget);
+    });
+
+    document.querySelectorAll('[data-copy]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        // Avoid double-fire when clicking the small 复制 button inside a wrap
+        e.stopPropagation();
+        const text = el.getAttribute('data-copy') || '';
+        requestCopy(text, el);
+      });
+    });
+
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') vscode.postMessage({ type: 'secondary' });
-      if (e.key === 'Enter') vscode.postMessage({ type: 'primary' });
+      // Don't treat Enter as confirm while selecting/copying text in inputs — none here;
+      // still skip if user is holding modifier for copy
+      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        vscode.postMessage({ type: 'primary' });
+      }
     });
   </script>
 </body>
@@ -263,9 +413,10 @@ function buildHtml(opts: ThemedConfirmOptions): string {
 export function showThemedConfirm(opts: ThemedConfirmOptions): Promise<ThemedDialogResult> {
     const uri = extensionUri;
     if (!uri) {
-        // Fallback if activate forgot to set uri — still usable, just no local resources
         console.warn('[themedDialog] extensionUri not set; dialog still works without local assets');
     }
+
+    const fullCopyText = buildCopySummary(opts);
 
     return new Promise((resolve) => {
         const panel: WebviewPanel = window.createWebviewPanel(
@@ -295,9 +446,22 @@ export function showThemedConfirm(opts: ThemedConfirmOptions): Promise<ThemedDia
 
         const disposables: Disposable[] = [];
         disposables.push(
-            panel.webview.onDidReceiveMessage((msg: { type?: string }) => {
-                if (msg?.type === 'primary') finish('primary');
-                else if (msg?.type === 'secondary') finish('secondary');
+            panel.webview.onDidReceiveMessage(async (msg: { type?: string; text?: string }) => {
+                if (msg?.type === 'primary') {
+                    finish('primary');
+                    return;
+                }
+                if (msg?.type === 'secondary') {
+                    finish('secondary');
+                    return;
+                }
+                if (msg?.type === 'copy' && typeof msg.text === 'string') {
+                    await env.clipboard.writeText(msg.text);
+                    return;
+                }
+                if (msg?.type === 'copy-all') {
+                    await env.clipboard.writeText(fullCopyText);
+                }
             }),
             panel.onDidDispose(() => {
                 disposables.forEach((d) => d.dispose());
