@@ -8,10 +8,12 @@ import { AVDSelectorProvider } from './webviews/avdSelectorProvider';
 import { KotlinImportFoldingProvider } from './language/KotlinImportFoldingProvider';
 import { LogcatService } from './service/LogcatService';
 import { ScreenshotService } from './service/ScreenshotService';
+import { setDialogExtensionUri } from './ui/themedDialog';
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log('Android Studio Lite extension is now active!');
 
+	setDialogExtensionUri(context.extensionUri);
 	// Initialize Manager (core singleton)
 	const manager = Manager.getInstance();
 	await manager.android.initCheck();

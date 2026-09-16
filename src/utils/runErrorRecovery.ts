@@ -8,6 +8,7 @@
  */
 
 import { window } from 'vscode';
+import { showThemedAlert, showThemedConfirm } from '../ui/themedDialog';
 
 export type RunErrorKind =
     | 'uninstall_reinstall'
@@ -42,7 +43,7 @@ interface PatternRule {
     kind: 'uninstall_reinstall' | 'tip';
 }
 
-const CONFIRM_UNINSTALL = 'Uninstall and Reinstall';
+const CONFIRM_UNINSTALL = '卸载并重装';
 
 const RULES: PatternRule[] = [
     // —— Recoverable: uninstall then reinstall ——
@@ -51,7 +52,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_VERSION_DOWNGRADE',
         action: {
             code: 'INSTALL_FAILED_VERSION_DOWNGRADE',
-            summary: 'The device already has a newer version of this app (downgrade blocked).',
+            summary: '设备上已有更高版本，系统禁止降级安装。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -60,7 +61,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_UPDATE_INCOMPATIBLE',
         action: {
             code: 'INSTALL_FAILED_UPDATE_INCOMPATIBLE',
-            summary: 'The existing app was signed with a different key (signature mismatch).',
+            summary: '设备上的应用签名与当前包不一致。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -69,7 +70,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES',
         action: {
             code: 'INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES',
-            summary: 'The existing app has a different signing certificate.',
+            summary: '设备上的应用证书与当前包不一致。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -78,7 +79,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_UID_CHANGED',
         action: {
             code: 'INSTALL_FAILED_UID_CHANGED',
-            summary: 'The existing app UID on the device conflicts with this install.',
+            summary: '设备上该应用的 UID 与本次安装冲突。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -87,7 +88,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_SHARED_USER_INCOMPATIBLE',
         action: {
             code: 'INSTALL_FAILED_SHARED_USER_INCOMPATIBLE',
-            summary: 'Shared user id on the device is incompatible with this package.',
+            summary: 'sharedUserId 与设备上已有应用不兼容。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -96,7 +97,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_PERMISSION_MODEL_DOWNGRADE',
         action: {
             code: 'INSTALL_FAILED_PERMISSION_MODEL_DOWNGRADE',
-            summary: 'The existing app uses a newer permission model than this build.',
+            summary: '设备上应用的权限模型比当前包更新，无法覆盖安装。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -105,7 +106,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_DUPLICATE_PERMISSION',
         action: {
             code: 'INSTALL_FAILED_DUPLICATE_PERMISSION',
-            summary: 'A permission defined by the existing app conflicts with this install.',
+            summary: '自定义权限与设备上已有定义冲突。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -114,7 +115,7 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_ALREADY_EXISTS',
         action: {
             code: 'INSTALL_FAILED_ALREADY_EXISTS',
-            summary: 'The package is already installed and cannot be updated in place.',
+            summary: '包已存在且无法就地更新。',
             confirmLabel: CONFIRM_UNINSTALL,
         },
     },
@@ -125,8 +126,8 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_INSUFFICIENT_STORAGE',
         action: {
             code: 'INSTALL_FAILED_INSUFFICIENT_STORAGE',
-            title: 'Not enough storage',
-            message: 'Free space on the device, then Run again.',
+            title: '存储空间不足',
+            message: '请清理设备空间后重新 Run。',
         },
     },
     {
@@ -134,8 +135,8 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_NO_MATCHING_ABIS',
         action: {
             code: 'INSTALL_FAILED_NO_MATCHING_ABIS',
-            title: 'ABI mismatch',
-            message: 'This APK has no native libraries for the device CPU. Check ndk.abiFilters / splits.',
+            title: 'CPU 架构不匹配',
+            message: '当前 APK 没有适配该设备 ABI 的原生库，请检查 ndk.abiFilters / splits。',
         },
     },
     {
@@ -143,8 +144,8 @@ const RULES: PatternRule[] = [
         match: /INSTALL_FAILED_(OLDER|NEWER)_SDK/,
         action: {
             code: 'INSTALL_FAILED_SDK_MISMATCH',
-            title: 'SDK / API level mismatch',
-            message: 'minSdk or targetSdk does not match this device. Adjust SDK levels or pick another device.',
+            title: 'SDK / API 级别不匹配',
+            message: 'minSdk 或 targetSdk 与设备不匹配，请调整 SDK 级别或换一台设备。',
         },
     },
     {
@@ -152,8 +153,8 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_TEST_ONLY',
         action: {
             code: 'INSTALL_FAILED_TEST_ONLY',
-            title: 'Test-only APK',
-            message: 'This build is marked android:testOnly. Use a debug install task, or install with adb -t.',
+            title: '仅测试包',
+            message: '该包标记了 android:testOnly。请使用 debug install 任务，或 adb install -t。',
         },
     },
     {
@@ -161,8 +162,8 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_USER_RESTRICTED',
         action: {
             code: 'INSTALL_FAILED_USER_RESTRICTED',
-            title: 'Install blocked by device',
-            message: 'Allow USB install / disable MIUI|OPPO|Huawei install protection, then retry.',
+            title: '设备禁止安装',
+            message: '请允许 USB 安装，或关闭厂商安装保护后再试。',
         },
     },
     {
@@ -170,8 +171,8 @@ const RULES: PatternRule[] = [
         match: /INSTALL_(CANCELED_BY_USER|FAILED_ABORTED)/,
         action: {
             code: 'INSTALL_ABORTED',
-            title: 'Install canceled',
-            message: 'Installation was canceled on the device. Confirm the on-device prompt and Run again.',
+            title: '安装已取消',
+            message: '设备上取消了安装。请在手机弹窗中确认后重新 Run。',
         },
     },
     {
@@ -179,8 +180,8 @@ const RULES: PatternRule[] = [
         match: 'INSTALL_FAILED_VERIFICATION_FAILURE',
         action: {
             code: 'INSTALL_FAILED_VERIFICATION_FAILURE',
-            title: 'Package verification failed',
-            message: 'Disable Play Protect / package verifier temporarily, or check the APK integrity.',
+            title: '包校验失败',
+            message: '可临时关闭 Play 保护 / 包校验，或检查 APK 是否完整。',
         },
     },
     {
@@ -188,8 +189,8 @@ const RULES: PatternRule[] = [
         match: /device\s+(unauthorized|offline)/i,
         action: {
             code: 'DEVICE_UNAUTHORIZED_OR_OFFLINE',
-            title: 'Device not ready',
-            message: 'Reconnect USB, accept the RSA prompt (unauthorized), or wait until the device is online.',
+            title: '设备未就绪',
+            message: '请重新连接 USB，确认授权弹窗（unauthorized），或等到设备 online。',
         },
     },
     {
@@ -197,8 +198,8 @@ const RULES: PatternRule[] = [
         match: /no devices\/emulators found|error:\s*device not found/i,
         action: {
             code: 'NO_DEVICE',
-            title: 'No device',
-            message: 'Start an emulator or plug in a device with USB debugging, then select it and Run.',
+            title: '没有可用设备',
+            message: '请启动模拟器或连接已开启 USB 调试的真机，选中后再 Run。',
         },
     },
     {
@@ -206,8 +207,8 @@ const RULES: PatternRule[] = [
         match: /Timed out waiting for .* to appear in adb|Emulator started but device not detected/i,
         action: {
             code: 'EMULATOR_BOOT_TIMEOUT',
-            title: 'Emulator not ready',
-            message: 'The emulator did not become ready in time. Start it manually from the AVD list, wait for home screen, then Run.',
+            title: '模拟器未就绪',
+            message: '模拟器启动超时。请从 AVD 列表手动启动，等到桌面后再 Run。',
         },
     },
     {
@@ -215,8 +216,8 @@ const RULES: PatternRule[] = [
         match: /SDK path not configured|Gradle wrapper not found/i,
         action: {
             code: 'SDK_OR_PROJECT',
-            title: 'Project / SDK setup',
-            message: 'Open an Android project root (with gradlew) and set android-studio-lite.sdkPath (or ANDROID_HOME).',
+            title: '工程 / SDK 未配置',
+            message: '请打开带 gradlew 的 Android 工程根目录，并设置 android-studio-lite.sdkPath（或 ANDROID_HOME）。',
         },
     },
     {
@@ -224,8 +225,8 @@ const RULES: PatternRule[] = [
         match: /Could not resolve|Could not download|Received status code 4\d\d/i,
         action: {
             code: 'DEPENDENCY_RESOLVE',
-            title: 'Dependency download failed',
-            message: 'Check network / proxy / repository mirrors, then Run again.',
+            title: '依赖下载失败',
+            message: '请检查网络 / 代理 / 仓库镜像后重试。',
         },
     },
 ];
@@ -285,7 +286,7 @@ export interface InstallRecoveryContext {
 export type InstallRecoveryResult = 'recovered' | 'cancelled' | 'unhandled';
 
 /**
- * If the install error is recoverable, show a modal confirm and run uninstall → reinstall.
+ * If the install error is recoverable, show a themed confirm and run uninstall → reinstall.
  * Returns `unhandled` when the caller should fall through to normal failure UI.
  */
 export async function tryRecoverInstallFailure(ctx: InstallRecoveryContext): Promise<InstallRecoveryResult> {
@@ -298,44 +299,51 @@ export async function tryRecoverInstallFailure(ctx: InstallRecoveryContext): Pro
         return 'unhandled';
     }
     if (!ctx.applicationId) {
-        await window.showWarningMessage(
-            `The application could not be installed (${action.code}).\n\n` +
-                `${action.summary}\n\n` +
-                `No applicationId is available to uninstall automatically. Uninstall the app on the device, then Run again.`,
-            { modal: true },
-        );
+        await showThemedAlert({
+            title: '安装失败',
+            heading: '无法自动卸载重装',
+            message: `${action.summary}\n\n缺少 applicationId，无法自动卸载。请先在设备上手动卸载该应用，再重新 Run。`,
+            code: action.code,
+            severity: 'warning',
+            primaryLabel: '知道了',
+        });
         return 'cancelled';
     }
 
-    const choice = await window.showWarningMessage(
-        `The application could not be installed.\n\n` +
-            `${action.code}\n${action.summary}\n\n` +
-            `Package: ${ctx.applicationId}` +
-            (ctx.targetLabel ? `\nTarget: ${ctx.targetLabel}` : '') +
-            `\n\nDo you want to uninstall the existing application and reinstall?`,
-        { modal: true },
-        action.confirmLabel,
-    );
+    const choice = await showThemedConfirm({
+        title: '安装冲突',
+        heading: '应用未能安装到设备',
+        message: action.summary,
+        code: action.code,
+        details: [
+            { label: '包名', value: ctx.applicationId },
+            ...(ctx.targetLabel ? [{ label: '目标', value: ctx.targetLabel }] : []),
+        ],
+        prompt: '是否卸载设备上的现有应用并重新安装？',
+        primaryLabel: action.confirmLabel,
+        secondaryLabel: '取消',
+        severity: 'warning',
+    });
 
-    if (choice !== action.confirmLabel) {
+    if (choice !== 'primary') {
         return 'cancelled';
     }
 
-    ctx.onProgress?.(`Uninstalling ${ctx.applicationId}...`);
+    ctx.onProgress?.(`正在卸载 ${ctx.applicationId}...`);
     await ctx.uninstall();
 
     if (ctx.isCancelled?.()) {
         return 'cancelled';
     }
 
-    ctx.onProgress?.('Reinstalling...');
+    ctx.onProgress?.('正在重新安装...');
     await ctx.reinstall();
     return 'recovered';
 }
 
 /**
  * Present a non-recoverable (or tip) run error to the user.
- * Tips use a modal warning; plain errors use an error toast.
+ * Tips use a themed alert; plain errors use an error toast.
  */
 export async function presentRunError(
     error: unknown,
@@ -348,23 +356,29 @@ export async function presentRunError(
 ): Promise<RunErrorAction> {
     const action = classifyRunError(error, options?.plainMessage);
     if (action.kind === 'tip') {
-        await window.showWarningMessage(
-            `${action.title}\n\n${action.message}\n\n(${action.code})`,
-            { modal: true },
-            'OK',
-        );
+        await showThemedAlert({
+            title: '运行提示',
+            heading: action.title,
+            message: action.message,
+            code: action.code,
+            severity: 'warning',
+            primaryLabel: '知道了',
+        });
         return action;
     }
     if (action.kind === 'uninstall_reinstall') {
         // Should have been handled by tryRecoverInstallFailure; tip only.
-        await window.showWarningMessage(
-            `${action.code}\n${action.summary}\n\nUninstall the app on the device and Run again.`,
-            { modal: true },
-            'OK',
-        );
+        await showThemedAlert({
+            title: '安装冲突',
+            heading: '需要先卸载现有应用',
+            message: `${action.summary}\n\n请在设备上手动卸载后重新 Run。`,
+            code: action.code,
+            severity: 'warning',
+            primaryLabel: '知道了',
+        });
         return action;
     }
-    const prefix = options?.toastPrefix ?? 'Build failed';
+    const prefix = options?.toastPrefix ?? '构建失败';
     await window.showErrorMessage(`${prefix}: ${action.message}`);
     return action;
 }

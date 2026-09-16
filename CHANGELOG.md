@@ -4,6 +4,11 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-09-16
+
+### Changed
+- **Themed Run dialogs:** Install conflict / tip dialogs use a Webview panel with VS Code CSS variables (follow light/dark theme) instead of the native white modal. Copy localized to Chinese.
+
 ## [0.0.18] - 2026-09-16
 
 ### Added
