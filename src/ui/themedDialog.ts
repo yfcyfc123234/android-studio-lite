@@ -387,7 +387,7 @@ function buildHtml(opts: ThemedConfirmOptions): string {
 
     document.querySelectorAll('[data-copy]').forEach((el) => {
       el.addEventListener('click', (e) => {
-        // Avoid double-fire when clicking the small 复制 button inside a wrap
+        // Avoid double-fire when clicking the small Copy button inside a wrap
         e.stopPropagation();
         const text = el.getAttribute('data-copy') || '';
         requestCopy(text, el);
