@@ -6,6 +6,7 @@ import { Manager } from '../core';
 import type { MuduleBuildVariant } from '../service/BuildVariantService';
 import { EmulatorBootService } from '../device/EmulatorBootService.js';
 import { LogcatService } from '../service/LogcatService.js';
+import { WORKSPACE_SELECTED_DEVICE_SERIAL } from '../service/ScreenshotService.js';
 import { formatAdbDeviceLabel, listOnlineAdbDevices } from '../utils/adbDevices.js';
 
 /** Unified run target shown in the device dropdown. */
@@ -115,6 +116,12 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             const targetId = e.params?.targetId || (e.params?.avdName ? `avd:${e.params.avdName}` : undefined);
             if (targetId) {
                 void this.host.notify('target-selected', { targetId });
+                if (typeof targetId === 'string' && targetId.startsWith('physical:')) {
+                    void this.context.workspaceState.update(
+                        WORKSPACE_SELECTED_DEVICE_SERIAL,
+                        targetId.slice('physical:'.length),
+                    );
+                }
             }
         } else if (e.type === 'select-module') {
             const { moduleName } = e.params || {};
@@ -127,6 +134,8 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             void this.handleCancelBuild(e.params);
         } else if (e.type === 'toggle-logcat') {
             void this.handleToggleLogcat(e.params);
+        } else if (e.type === 'take-screenshot') {
+            void commands.executeCommand('android-studio-lite.takeScreenshot', e.params?.serial);
         }
     }
 
@@ -214,6 +223,10 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                         if (kind === 'physical') {
                             progress.report({ increment: 10, message: `Using device ${serial}...` });
                             deviceSerial = serial as string;
+                            await this.context.workspaceState.update(
+                                WORKSPACE_SELECTED_DEVICE_SERIAL,
+                                deviceSerial,
+                            );
                         } else {
                             const emulatorPath = this.manager.android.getEmulator();
                             if (!emulatorPath) {

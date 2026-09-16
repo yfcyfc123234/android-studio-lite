@@ -2,7 +2,7 @@
   "name": "android-studio-lite",
   "displayName": "Android Studio Lite (yfc)",
   "description": "Android Dev Companion for Cursor/VS Code - Device management and app lifecycle controls (private fork with physical device support)",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "publisher": "yfcyfc123234",
   "repository": {
     "type": "git",
@@ -132,6 +132,12 @@
         "command": "android-studio-lite.setLogLevel",
         "title": "Set Log Level",
         "icon": "$(filter)"
+      },
+      {
+        "command": "android-studio-lite.takeScreenshot",
+        "title": "Take Screenshot",
+        "category": "Android Studio Lite",
+        "icon": "$(device-camera)"
       },
       {
         "command": "android-studio-lite.startEmulator",
@@ -313,6 +319,10 @@
           "when": "true"
         },
         {
+          "command": "android-studio-lite.takeScreenshot",
+          "when": "true"
+        },
+        {
           "command": "android-studio-lite.startEmulator",
           "when": "true"
         },
@@ -433,6 +443,21 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Android emulator options. [Start the emulator from the command line](https://developer.android.com/studio/run/emulator-commandline)"
+        },
+        "android-studio-lite.screenshot.saveMode": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "file",
+            "clipboard"
+          ],
+          "default": "ask",
+          "markdownDescription": "How to handle device screenshots: `ask` each time (Android Studio style), save to `file`, or copy to `clipboard`."
+        },
+        "android-studio-lite.screenshot.savePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Folder for screenshot PNG files when save mode is `file`. Empty = `<workspace>/screenshots` (or `~/Pictures/AndroidScreenshots` if no workspace)."
         }
       }
     }
