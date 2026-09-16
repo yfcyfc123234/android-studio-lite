@@ -8,7 +8,7 @@ import { EmulatorBootService } from '../device/EmulatorBootService.js';
 import { LogcatService } from '../service/LogcatService.js';
 import { WORKSPACE_SELECTED_DEVICE_SERIAL } from '../service/ScreenshotService.js';
 import { formatAdbDeviceLabel, listOnlineAdbDevices } from '../utils/adbDevices.js';
-import { classifyRecoverableInstallFailure } from '../utils/installFailure.js';
+import { presentRunError, tryRecoverInstallFailure } from '../utils/runErrorRecovery.js';
 
 /** Unified run target shown in the device dropdown. */
 export interface RunTarget {
@@ -300,40 +300,35 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                                 throw new Error('Build was cancelled');
                             }
 
-                            const errText = String(installError?.message || installError || '');
-                            const recoverable = classifyRecoverableInstallFailure(errText);
-                            const applicationId = variant.applicationId;
+                            const recovery = await tryRecoverInstallFailure({
+                                error: installError,
+                                applicationId: variant.applicationId,
+                                targetLabel: `${moduleName} / ${variantName}`,
+                                onProgress: (message) => progress.report({ message }),
+                                isCancelled: () =>
+                                    cancelToken.token.isCancellationRequested || token.isCancellationRequested,
+                                uninstall: () => this.uninstallApp(variant.applicationId!, deviceSerial),
+                                reinstall: () => runInstall(),
+                            });
 
-                            if (!recoverable || !applicationId) {
-                                throw installError;
+                            if (recovery === 'recovered') {
+                                // continue to launch
+                            } else if (recovery === 'cancelled') {
+                                // User dismissed confirm / missing applicationId tip already shown
+                                throw Object.assign(
+                                    new Error(this.extractBuildErrorMessage(installError)),
+                                    { __aslPresented: true },
+                                );
+                            } else {
+                                await presentRunError(installError, {
+                                    plainMessage: this.extractBuildErrorMessage(installError),
+                                    toastPrefix: 'Install failed',
+                                });
+                                throw Object.assign(
+                                    new Error(this.extractBuildErrorMessage(installError)),
+                                    { __aslPresented: true },
+                                );
                             }
-
-                            console.warn(
-                                `[AVDSelectorProvider] Recoverable install failure ${recoverable.code}; offering uninstall+reinstall`,
-                            );
-
-                            const choice = await window.showWarningMessage(
-                                `The application could not be installed.\n\n` +
-                                    `${recoverable.code}\n${recoverable.summary}\n\n` +
-                                    `Package: ${applicationId}\n` +
-                                    `Do you want to uninstall the existing application and reinstall?`,
-                                { modal: true },
-                                'Uninstall and Reinstall',
-                            );
-
-                            if (choice !== 'Uninstall and Reinstall') {
-                                throw installError;
-                            }
-
-                            progress.report({ message: `Uninstalling ${applicationId}...` });
-                            await this.uninstallApp(applicationId, deviceSerial);
-
-                            if (cancelToken.token.isCancellationRequested || token.isCancellationRequested) {
-                                throw new Error('Build was cancelled');
-                            }
-
-                            progress.report({ message: `Reinstalling ${installTask}...` });
-                            await runInstall();
                         }
 
                         console.log(`[AVDSelectorProvider] Gradle install task completed successfully: ${installTask}`);
@@ -370,12 +365,16 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 await this.host.notify('build-cancelled', {});
                 window.showInformationMessage('Build was cancelled');
             } else {
-                let errorMessage = this.extractBuildErrorMessage(error);
-
+                const errorMessage = this.extractBuildErrorMessage(error);
                 console.error('[AVDSelectorProvider] Build failed with error:', errorMessage);
                 console.error('[AVDSelectorProvider] Full error object:', error);
                 await this.host.notify('build-failed', { error: errorMessage });
-                window.showErrorMessage(`Build failed: ${errorMessage}`);
+                if (!error?.__aslPresented) {
+                    await presentRunError(error, {
+                        plainMessage: errorMessage,
+                        toastPrefix: 'Build failed',
+                    });
+                }
             }
         } finally {
             if (cancellationToken) {

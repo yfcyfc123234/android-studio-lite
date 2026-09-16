@@ -4,6 +4,11 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-09-16
+
+### Added
+- **Run error recovery module:** Central `runErrorRecovery` classifies common install/device failures. Recoverable conflicts (`VERSION_DOWNGRADE`, signature mismatch, …) prompt uninstall→reinstall; storage/ABI/SDK/device-offline/etc. show modal tips instead of a raw stack toast.
+
 ## [0.0.17] - 2026-09-16
 
 ### Added
