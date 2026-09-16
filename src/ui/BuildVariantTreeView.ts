@@ -4,6 +4,7 @@ import { showMsg, showQuickPick, MsgType } from '../module/ui';
 import { subscribe } from '../module/';
 import { BuildVariantQuickPickItem } from './BuildVariantQuickPick';
 import { MuduleBuildVariant } from '../service/BuildVariantService';
+import { BuildVariantModel } from '../cmd/BuildVariant';
 
 const SELECTED_BUILD_VARIANTS_KEY = 'android-studio-lite.selectedBuildVariants';
 
@@ -133,8 +134,49 @@ export class BuildVariantTreeView {
 
         if (selected && typeof selected !== 'boolean') {
             const buildVariant = (selected as BuildVariantQuickPickItem).buildVariant;
-            await this.saveSelectedBuildVariant(this.provider.context, moduleName, buildVariant.name);
+            await this.applySelectedBuildVariant(module, buildVariant);
             this.provider.refresh();
+        }
+    }
+
+    /**
+     * Persist the chosen variant. For application modules, also align library
+     * modules to a compatible variant (same buildType / best flavor overlap),
+     * similar to Android Studio's Build Variants coordination.
+     */
+    private async applySelectedBuildVariant(
+        module: MuduleBuildVariant,
+        buildVariant: BuildVariantModel
+    ) {
+        const context = this.provider.context;
+        const selectedVariants = context.workspaceState.get<Record<string, string>>(
+            SELECTED_BUILD_VARIANTS_KEY,
+            {}
+        );
+        selectedVariants[module.module] = buildVariant.name;
+
+        let cascaded = 0;
+        if (module.type === 'application') {
+            const modules = await this.manager.buildVariant.getModuleBuildVariants(context);
+            for (const other of modules) {
+                if (other.module === module.module || other.type !== 'library') {
+                    continue;
+                }
+                const match = findCompatibleVariant(other, buildVariant);
+                if (match && selectedVariants[other.module] !== match.name) {
+                    selectedVariants[other.module] = match.name;
+                    cascaded++;
+                }
+            }
+        }
+
+        await context.workspaceState.update(SELECTED_BUILD_VARIANTS_KEY, selectedVariants);
+
+        if (cascaded > 0) {
+            showMsg(
+                MsgType.info,
+                `${module.module} → ${buildVariant.name}; aligned ${cascaded} library module(s) to buildType "${buildVariant.buildType}".`
+            );
         }
     }
 
@@ -158,6 +200,67 @@ export class BuildVariantTreeView {
         );
         return selectedVariants[moduleName];
     }
+}
+
+/**
+ * Pick the best variant on `module` for the selection made on another module
+ * (typically an application). Prefer exact name, then same buildType with
+ * maximum product-flavor overlap, then buildType-only / name suffix fallbacks.
+ */
+export function findCompatibleVariant(
+    module: MuduleBuildVariant,
+    source: BuildVariantModel
+): BuildVariantModel | undefined {
+    const variants = module.variants;
+    if (!variants || variants.length === 0) {
+        return undefined;
+    }
+
+    const exact = variants.find(v => v.name === source.name);
+    if (exact) {
+        return exact;
+    }
+
+    const sourceBuildType = (source.buildType || '').toLowerCase();
+    const sourceFlavors = new Set(
+        (source.flavors || [])
+            .map(f => (f || '').trim())
+            .filter(f => f.length > 0 && f.toLowerCase() !== sourceBuildType)
+    );
+
+    const sameBuildType = variants.filter(
+        v => (v.buildType || '').toLowerCase() === sourceBuildType
+    );
+
+    const scoreVariant = (v: BuildVariantModel): number => {
+        let score = 0;
+        const flavors = new Set((v.flavors || []).map(f => (f || '').trim()).filter(Boolean));
+        for (const f of sourceFlavors) {
+            if (flavors.has(f)) {
+                score += 10;
+            }
+        }
+        // Prefer plain buildType name (debug/release) for libraries without flavors
+        if (v.name.toLowerCase() === sourceBuildType) {
+            score += 3;
+        }
+        if (v.name.toLowerCase().endsWith(sourceBuildType)) {
+            score += 1;
+        }
+        return score;
+    };
+
+    if (sameBuildType.length > 0) {
+        return sameBuildType.reduce((best, v) =>
+            scoreVariant(v) > scoreVariant(best) ? v : best
+        );
+    }
+
+    return (
+        variants.find(v => v.name.toLowerCase() === sourceBuildType) ||
+        variants.find(v => v.name.toLowerCase().endsWith(sourceBuildType)) ||
+        undefined
+    );
 }
 
 type TreeItem = BuildVariantTreeItem | OpenAndroidProjectTreeItem;
