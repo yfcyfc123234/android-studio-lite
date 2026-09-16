@@ -17,9 +17,9 @@ You ain't going back to android studio for a while.
   - Restart the editor after changing env vars.
 3. **Open an Android project** (folder with `gradlew`).
 4. Open the **Android Studio Lite** view in the sidebar (Android icon in the activity bar).
-5. **Select an AVD** in the dropdown (or start an emulator from the AVD view).
+5. **Select a device** in the dropdown — online **physical devices** (`adb devices`) and local **AVDs** both appear (physical devices are preferred when present).
 6. **Select a module** (e.g. `app`) in the dropdown.
-7. Click **Run**. The extension builds, installs, and launches the app on the device.
+7. Click **Run**. The extension builds, installs, and launches the app on the selected device (physical runs skip emulator boot).
 8. Turn **Logcat** on to see logs for that app in the Logcat output channel.
 
 ---

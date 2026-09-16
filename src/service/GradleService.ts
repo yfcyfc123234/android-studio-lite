@@ -22,7 +22,9 @@ export class GradleService extends Service {
     public async installVariant(
         variantTask: string,
         onOutput?: (output: string) => void,
-        cancellationToken?: vscode.CancellationToken
+        cancellationToken?: vscode.CancellationToken,
+        /** When set, Gradle/adb installs to this serial (ANDROID_SERIAL). */
+        deviceSerial?: string
     ): Promise<void> {
         if (!this.workspacePath) {
             throw new Error("No workspace folder found");
@@ -49,6 +51,10 @@ export class GradleService extends Service {
             const spawnOptions: child_process.SpawnOptions = {
                 shell: true,
                 cwd: this.workspacePath,
+                env: {
+                    ...process.env,
+                    ...(deviceSerial ? { ANDROID_SERIAL: deviceSerial } : {}),
+                },
             };
 
             this.buildProcess = child_process.spawn(cmd, [], spawnOptions);
