@@ -22,15 +22,14 @@ const progressSpinnerIcon = `<svg width="16" height="16" viewBox="0 0 16 16" fil
 <rect x="1.63599" y="3.05025" width="2" height="5" rx="1" transform="rotate(-45 1.63599 3.05025)" fill="white" fill-opacity="0.7"/>
 </svg>`;
 
-interface AVD {
-    name: string;
-    basedOn: string;
-    device: string;
-    path: string;
-    sdCard: string;
-    skin: string;
-    tagAbi: string;
-    target: string;
+/** Unified run target: online device (physical/emulator) or local AVD. */
+export interface RunTarget {
+    /** physical:<serial> | emulator:<serial> | avd:<name> */
+    id: string;
+    kind: 'physical' | 'emulator' | 'avd';
+    label: string;
+    serial?: string;
+    avdName?: string;
 }
 
 interface Module {
@@ -119,10 +118,10 @@ export class ASlAVDSelectorApp extends ASlElement {
     ];
 
     @state()
-    private avds: AVD[] = [];
+    private targets: RunTarget[] = [];
 
     @state()
-    private selectedAVD: string = '';
+    private selectedTargetId: string = '';
 
     @state()
     private modules: Module[] = [];
@@ -148,11 +147,11 @@ export class ASlAVDSelectorApp extends ASlElement {
     private vscode: any;
     private buildCancellationToken: string | null = null;
 
-    private get avdOptions(): DropdownOption[] {
-        return this.avds.map(avd => ({
-            value: avd.name,
-            label: avd.name,
-            avd,
+    private get targetOptions(): DropdownOption[] {
+        return this.targets.map(t => ({
+            value: t.id,
+            label: t.label,
+            target: t,
         }));
     }
 
@@ -164,14 +163,29 @@ export class ASlAVDSelectorApp extends ASlElement {
         }));
     }
 
-    private handleAVDChange(e: CustomEvent) {
+    private applyTargets(targets: RunTarget[], preferredId?: string) {
+        this.targets = targets || [];
+        // Keep the user's current selection across refreshes when it is still valid.
+        if (this.selectedTargetId && this.targets.some(t => t.id === this.selectedTargetId)) {
+            return;
+        }
+        if (preferredId && this.targets.some(t => t.id === preferredId)) {
+            this.selectedTargetId = preferredId;
+            return;
+        }
+        const physical = this.targets.find(t => t.kind === 'physical');
+        const emulator = this.targets.find(t => t.kind === 'emulator');
+        this.selectedTargetId = physical?.id || emulator?.id || this.targets[0]?.id || '';
+    }
+
+    private handleTargetChange(e: CustomEvent) {
         const { value } = e.detail;
-        if (value !== this.selectedAVD) {
-            this.selectedAVD = value;
+        if (value !== this.selectedTargetId) {
+            this.selectedTargetId = value;
             if (this.vscode) {
                 this.vscode.postMessage({
-                    type: 'select-avd',
-                    params: { avdName: value },
+                    type: 'select-target',
+                    params: { targetId: value },
                 });
             }
         }
@@ -191,7 +205,12 @@ export class ASlAVDSelectorApp extends ASlElement {
     }
 
     private handleRunClick() {
-        if (!this.selectedAVD || !this.selectedModule || this.isBuilding) {
+        if (!this.selectedTargetId || !this.selectedModule || this.isBuilding) {
+            return;
+        }
+
+        const target = this.targets.find(t => t.id === this.selectedTargetId);
+        if (!target) {
             return;
         }
 
@@ -203,7 +222,10 @@ export class ASlAVDSelectorApp extends ASlElement {
             this.vscode.postMessage({
                 type: 'run-app',
                 params: {
-                    avdName: this.selectedAVD,
+                    targetId: target.id,
+                    kind: target.kind,
+                    serial: target.serial,
+                    avdName: target.avdName,
                     moduleName: this.selectedModule,
                     cancellationToken: this.buildCancellationToken,
                 },
@@ -238,40 +260,37 @@ export class ASlAVDSelectorApp extends ASlElement {
         }
     }
 
+    private handleScreenshotClick() {
+        if (!this.vscode) {
+            return;
+        }
+        const target = this.targets.find(t => t.id === this.selectedTargetId);
+        this.vscode.postMessage({
+            type: 'take-screenshot',
+            params: { serial: target?.serial },
+        });
+    }
+
     private handleMessage = (event: MessageEvent) => {
         const message = event.data;
         switch (message.type) {
-            case 'update-avds':
-                const { avds } = message.params || {};
-                if (avds) {
-                    this.avds = avds;
-                    // Select first AVD if none selected
-                    if (!this.selectedAVD && avds.length > 0) {
-                        this.selectedAVD = avds[0].name;
-                    }
-                }
+            case 'update-targets':
+                this.applyTargets(message.params?.targets || [], message.params?.selectedTargetId);
                 break;
             case 'update-modules':
                 const { modules } = message.params || {};
                 if (modules) {
                     this.modules = modules;
-                    // Select first module if none selected
                     if (!this.selectedModule && modules.length > 0) {
                         this.selectedModule = modules[0].module;
                     }
                 }
                 break;
             case 'webview/ready':
-                // Handle bootstrap data from ready response
                 if (message.params && message.params.state) {
                     const state = message.params.state;
-                    if (state.avds) {
-                        this.avds = state.avds;
-                        if (state.selectedAVD) {
-                            this.selectedAVD = state.selectedAVD;
-                        } else if (this.avds.length > 0) {
-                            this.selectedAVD = this.avds[0].name;
-                        }
+                    if (state.targets) {
+                        this.applyTargets(state.targets, state.selectedTargetId);
                     }
                     if (state.modules) {
                         this.modules = state.modules;
@@ -323,37 +342,27 @@ export class ASlAVDSelectorApp extends ASlElement {
     override connectedCallback() {
         super.connectedCallback();
 
-        // Initialize VS Code API
         if (typeof (window as any).acquireVsCodeApi !== 'undefined') {
             this.vscode = (window as any).acquireVsCodeApi();
         }
 
-        // Listen for messages from extension
         window.addEventListener('message', this.handleMessage);
 
-        // Request initial AVD list and modules
         if (this.vscode) {
-            this.vscode.postMessage({ type: 'refresh-avds' });
+            this.vscode.postMessage({ type: 'refresh-targets' });
             this.vscode.postMessage({ type: 'refresh-modules' });
         }
 
-        // Load bootstrap data if available
         if (typeof (window as any).bootstrap !== 'undefined') {
             try {
-                // Bootstrap is a base64 encoded JSON string
                 const bootstrapStr = (window as any).bootstrap;
                 const bootstrap = typeof bootstrapStr === 'string'
                     ? JSON.parse(atob(bootstrapStr))
                     : bootstrapStr;
-                if (bootstrap && bootstrap.avds) {
-                    this.avds = bootstrap.avds;
-                    if (bootstrap.selectedAVD) {
-                        this.selectedAVD = bootstrap.selectedAVD;
-                    } else if (this.avds.length > 0) {
-                        this.selectedAVD = this.avds[0].name;
-                    }
+                if (bootstrap?.targets) {
+                    this.applyTargets(bootstrap.targets, bootstrap.selectedTargetId);
                 }
-                if (bootstrap && bootstrap.modules) {
+                if (bootstrap?.modules) {
                     this.modules = bootstrap.modules;
                     if (bootstrap.selectedModule) {
                         this.selectedModule = bootstrap.selectedModule;
@@ -372,7 +381,6 @@ export class ASlAVDSelectorApp extends ASlElement {
             }
         }
 
-        // Send ready message to extension
         if (this.vscode) {
             this.vscode.postMessage({ type: 'webview/ready' });
         }
@@ -405,12 +413,12 @@ export class ASlAVDSelectorApp extends ASlElement {
 				<h2 class="section-title">Android Studio Lite</h2>
 
 				<div class="dropdown-container">
-					<div class="dropdown-label">Select AVD</div>
+					<div class="dropdown-label">Select Device</div>
 					<asl-dropdown
-						.options=${this.avdOptions}
-						.value=${this.selectedAVD}
-						placeholder="No AVDs available"
-						@change=${this.handleAVDChange}
+						.options=${this.targetOptions}
+						.value=${this.selectedTargetId}
+						placeholder="No devices / AVDs"
+						@change=${this.handleTargetChange}
 					></asl-dropdown>
 				</div>
 
@@ -428,7 +436,7 @@ export class ASlAVDSelectorApp extends ASlElement {
 					<asl-button
 						icon=${this.isBuilding ? progressSpinnerIcon : playIcon}
 						label=${this.isBuilding ? 'Building...' : 'Run'}
-						?disabled=${!this.selectedAVD || !this.selectedModule || this.isBuilding}
+						?disabled=${!this.selectedTargetId || !this.selectedModule || this.isBuilding}
 						@button-click=${this.handleRunClick}
 					></asl-button>
 					<asl-button
@@ -437,6 +445,13 @@ export class ASlAVDSelectorApp extends ASlElement {
 						label="Cancel"
 						?disabled=${!this.buildCancellable}
 						@button-click=${this.handleCancelClick}
+					></asl-button>
+					<asl-button
+						variant="secondary"
+						icon="📷"
+						label="Shot"
+						?disabled=${!this.selectedTargetId}
+						@button-click=${this.handleScreenshotClick}
 					></asl-button>
 					${this.logcatAvailable
 						? html`<asl-toggle-button
@@ -451,9 +466,7 @@ export class ASlAVDSelectorApp extends ASlElement {
     }
 }
 
-// Initialize the app when the module loads
 if (typeof window !== 'undefined') {
-    // Wait for DOM to be ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             const app = document.createElement('asl-avd-selector-app');

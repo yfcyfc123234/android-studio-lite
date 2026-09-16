@@ -1,4 +1,4 @@
-# Android Studio Lite
+﻿# Android Studio Lite
 
 You ain't going back to android studio for a while.
 
@@ -17,7 +17,7 @@ You ain't going back to android studio for a while.
   - Restart the editor after changing env vars.
 3. **Open an Android project** (folder with `gradlew`).
 4. Open the **Android Studio Lite** view in the sidebar (Android icon in the activity bar).
-5. **Select an AVD** in the dropdown (or start an emulator from the AVD view).
+5. **Select a device** in the dropdown (online physical device or AVD; or start an emulator from the AVD view).
 6. **Select a module** (e.g. `app`) in the dropdown.
 7. Click **Run**. The extension builds, installs, and launches the app on the device.
 8. Turn **Logcat** on to see logs for that app in the Logcat output channel.
@@ -51,11 +51,21 @@ After changing environment variables, restart the editor.
 ## Running your app
 
 1. Open the **Android Studio Lite** sidebar view.
-2. **Device:** Choose an AVD from the dropdown. If the emulator is not running, the extension can start it when you Run.
+2. **Device:** Choose a physical device or AVD from the dropdown. Running on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install.
 3. **Module:** Choose the app module (e.g. `app`). Variants are loaded from Gradle; pick the one you want (e.g. debug).
 4. Click **Run**.
   - Extension builds and installs the app (Gradle), then launches it on the selected device.
   - The first run may take longer (Gradle, booting emulator).
+5. **Shot:** Capture the current device screen — save to file or copy to clipboard (see Screenshots).
+
+---
+
+## Screenshots
+
+- Command Palette: `Android Studio Lite: Take Screenshot`
+- Settings:
+  - `android-studio-lite.screenshot.saveMode`: `ask` (default) | `file` | `clipboard`
+  - `android-studio-lite.screenshot.savePath`: folder for PNG files (empty → `<workspace>/screenshots`)
 
 ---
 
@@ -88,6 +98,7 @@ After changing environment variables, restart the editor.
 | Start Emulator / Select Device            | Launch or choose device.    |
 | Select Build Variant                      | Choose build configuration. |
 | Run App                                   | Build, install, launch.     |
+| Take Screenshot                           | Capture device screen.      |
 | Start Logcat / Stop Logcat / Clear Logcat | Control log stream.         |
 | Stop App / Uninstall / Clear Data         | App lifecycle on device.    |
 
@@ -100,10 +111,10 @@ After changing environment variables, restart the editor.
 | Issue                            | What to do                                                                                                                       |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | No devices                       | Run `adb devices`. Ensure USB debugging authorized or emulator running. Check `android-studio-lite.sdkPath` (or `ANDROID_HOME`). |
-| Build variants empty             | Open an Android project root (with `gradlew`). Make sure Gradle wrapper is executable.                                           |
+| Build variants empty             | Open an Android project root (with `gradlew`). Make sure Gradle wrapper is executable. On AGP 9, ensure a recent build of this extension with `androidComponents` discovery. |
 | Logcat shows “Run the app first” | Run the app once from the sidebar so the extension can attach Logcat to that app.                                                |
 | Emulator not found               | Install SDK Platform Tools & Emulator (e.g. via Android Studio SDK Manager). Set SDK path.                                       |
+| Install version downgrade        | Confirm uninstall+reinstall when prompted, or bump your app `versionCode` above the device build.                                |
 
 
 ---
-

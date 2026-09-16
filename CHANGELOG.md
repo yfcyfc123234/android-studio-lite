@@ -2,6 +2,23 @@
 
 All notable changes to the "Android Studio Lite" extension will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **AGP 9 module discovery:** Build Variant / Module dropdown no longer stays empty on AGP 9 (`android.newDsl`). The init script now collects variants via `androidComponents.onVariants`, and still falls back to legacy `applicationVariants` / `libraryVariants` for AGP 7/8 or `android.newDsl=false`.
+
+### Added
+- **Physical device support:** The Run dropdown lists online devices from `adb devices` alongside local AVDs. Running on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install/launch.
+- **Build Variant cascade:** Changing an application module's variant aligns library modules to a compatible variant with the same `buildType` (and best flavor overlap), similar to Android Studio.
+- **Release Run/install:** Application release variants now expose `install*` tasks (not only `bundle`), using project-scoped paths.
+- **Device screenshot:** Take Screenshot (sidebar **Shot** / Command Palette). Settings: `screenshot.saveMode` (`ask` / `file` / `clipboard`) and `screenshot.savePath`.
+- **Install conflict recovery (AS-style):** On recoverable adb install failures (`INSTALL_FAILED_VERSION_DOWNGRADE`, signature mismatch, etc.), show a themed confirm; if accepted, `adb uninstall` then reinstall and launch. `VERSION_DOWNGRADE` shows installed vs attempted `versionCode`.
+- **Run error recovery module:** Central classifier for common install/device failures; storage/ABI/SDK/device-offline/etc. show tip dialogs instead of a raw stack toast.
+- **Themed Run dialogs:** Confirm/tip dialogs use a Webview with VS Code CSS variables (follow editor theme) and a centered modal card; error code / details are copyable.
+
+### Changed
+- Preserve selected Run target across refreshes; launch via `execFile` args (no shell interpolation); classify online `emulator-*` separately from physical devices.
+
 ## [0.0.10] - 2026-03-06
 
 ### Changed

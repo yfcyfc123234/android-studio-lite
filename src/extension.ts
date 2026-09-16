@@ -7,10 +7,13 @@ import { WebviewsController } from './webviews/webviewsController';
 import { AVDSelectorProvider } from './webviews/avdSelectorProvider';
 import { KotlinImportFoldingProvider } from './language/KotlinImportFoldingProvider';
 import { LogcatService } from './service/LogcatService';
+import { ScreenshotService } from './service/ScreenshotService';
+import { setDialogExtensionUri } from './ui/themedDialog';
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log('Android Studio Lite extension is now active!');
 
+	setDialogExtensionUri(context.extensionUri);
 	// Initialize Manager (core singleton)
 	const manager = Manager.getInstance();
 	await manager.android.initCheck();
@@ -25,6 +28,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// Logcat: built-in service with its own output channel (logs for last-run app only)
 	const logcatService = new LogcatService(manager, context);
+	const screenshotService = new ScreenshotService(manager, context);
 
 	// Register AVD Selector webview view using new architecture
 	const webviewsController = new WebviewsController(context);
@@ -85,6 +89,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('android-studio-lite.setLogLevel', async () => {
 			logcatService.show();
 			vscode.window.showInformationMessage('Filter by log level is not available. Logcat shows all levels for the running app.');
+		}),
+		vscode.commands.registerCommand('android-studio-lite.takeScreenshot', async (serial?: string) => {
+			await screenshotService.takeScreenshot(typeof serial === 'string' ? serial : undefined);
 		}),
 	]);
 
