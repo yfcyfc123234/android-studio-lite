@@ -1,12 +1,12 @@
 {
   "name": "android-studio-lite",
-  "displayName": "Android Studio Lite",
-  "description": "Android Dev Companion for Cursor/VS Code - Device management and app lifecycle controls",
-  "version": "0.0.10",
-  "publisher": "krishna-kudari",
+  "displayName": "Android Studio Lite (yfc)",
+  "description": "Android Dev Companion for Cursor/VS Code - Device management and app lifecycle controls (private fork with physical device support)",
+  "version": "0.0.11",
+  "publisher": "yfcyfc123234",
   "repository": {
     "type": "git",
-    "url": "https://github.com/krishna-kudari/android-studio-lite"
+    "url": "https://github.com/yfcyfc123234/android-studio-lite"
   },
   "icon": "assets/android-studio-macos-transparent.png",
   "engines": {

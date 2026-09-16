@@ -3,14 +3,23 @@ import { Disposable as VSCodeDisposable, window, commands, workspace, ProgressLo
 import type { WebviewProvider, WebviewHost } from './webviewProvider.js';
 import type { WebviewState } from './protocol.js';
 import { Manager } from '../core';
-import type { AVD } from '../cmd/AVDManager';
 import type { MuduleBuildVariant } from '../service/BuildVariantService';
 import { EmulatorBootService } from '../device/EmulatorBootService.js';
 import { LogcatService } from '../service/LogcatService.js';
+import { formatAdbDeviceLabel, listOnlineAdbDevices } from '../utils/adbDevices.js';
+
+/** Unified run target shown in the device dropdown. */
+export interface RunTarget {
+    id: string;
+    kind: 'physical' | 'avd';
+    label: string;
+    serial?: string;
+    avdName?: string;
+}
 
 export interface AVDSelectorWebviewState extends WebviewState {
-    avds?: AVD[];
-    selectedAVD?: string;
+    targets?: RunTarget[];
+    selectedTargetId?: string;
     modules?: MuduleBuildVariant[];
     selectedModule?: string;
     /** When false, show "Open an Android project" placeholder. */
@@ -52,9 +61,8 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
     }
 
     async includeBootstrap(): Promise<AVDSelectorWebviewState> {
-        const avds = await this.manager.avd.getAVDList();
-        const avdList = avds || [];
-        const selectedAVD = avdList.length > 0 ? avdList[0].name : undefined;
+        const targets = await this.buildRunTargets();
+        const selectedTargetId = this.pickDefaultTargetId(targets);
 
         const isAndroidProject = this.manager.buildVariant.isAndroidProject();
 
@@ -70,19 +78,16 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         }
         const selectedModule = modules.length > 0 ? modules[0].module : undefined;
 
-        // Check current logcat state
         try {
-            // Try to check if logcat is running by checking if Logcat output channel exists and is visible
-            // This is a best-effort check since we don't have direct access to LogcatProvider
-            this.logcatActive = false; // Default to false, will be updated when user toggles
+            this.logcatActive = false;
         } catch (error) {
             console.error('[AVDSelectorProvider] Error checking logcat state:', error);
         }
 
         return {
             ...this.host.baseWebviewState,
-            avds: avdList,
-            selectedAVD,
+            targets,
+            selectedTargetId,
             modules,
             selectedModule,
             isAndroidProject,
@@ -92,10 +97,8 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
     async onReady(): Promise<void> {
         console.log('[AVDSelector] Ready');
-        // Send initial AVD list and modules
-        await this.sendAVDList();
+        await this.sendTargets();
         await this.sendModules();
-        // Send initial logcat state
         await this.host.notify('logcat-state-changed', { active: this.logcatActive });
     }
 
@@ -104,14 +107,14 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             void commands.executeCommand('workbench.action.files.openFolder');
             return;
         }
-        if (e.type === 'refresh-avds') {
-            void this.sendAVDList();
+        if (e.type === 'refresh-targets' || e.type === 'refresh-avds') {
+            void this.sendTargets();
         } else if (e.type === 'refresh-modules') {
             void this.sendModules();
-        } else if (e.type === 'select-avd') {
-            const { avdName } = e.params || {};
-            if (avdName) {
-                void this.host.notify('avd-selected', { avdName });
+        } else if (e.type === 'select-target' || e.type === 'select-avd') {
+            const targetId = e.params?.targetId || (e.params?.avdName ? `avd:${e.params.avdName}` : undefined);
+            if (targetId) {
+                void this.host.notify('target-selected', { targetId });
             }
         } else if (e.type === 'select-module') {
             const { moduleName } = e.params || {};
@@ -128,13 +131,28 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
     }
 
     private async handleRunApp(params: any): Promise<void> {
-        const { avdName, moduleName, cancellationToken } = params || {};
-        if (!avdName || !moduleName) {
-            await this.host.notify('build-failed', { error: 'AVD and Module must be selected' });
+        const {
+            targetId,
+            kind: kindParam,
+            serial: serialParam,
+            avdName,
+            moduleName,
+            cancellationToken,
+        } = params || {};
+
+        const kind: 'physical' | 'avd' =
+            kindParam ||
+            (typeof targetId === 'string' && targetId.startsWith('physical:') ? 'physical' : 'avd');
+        const resolvedAvdName = avdName ||
+            (typeof targetId === 'string' && targetId.startsWith('avd:') ? targetId.slice(4) : undefined);
+        const serial = serialParam ||
+            (typeof targetId === 'string' && targetId.startsWith('physical:') ? targetId.slice(9) : undefined);
+
+        if (!moduleName || (kind === 'avd' && !resolvedAvdName) || (kind === 'physical' && !serial)) {
+            await this.host.notify('build-failed', { error: 'Device and Module must be selected' });
             return;
         }
 
-        // Create cancellation token
         const cancelToken = new CancellationTokenSource();
         if (cancellationToken) {
             this.buildCancellationTokens.set(cancellationToken, cancelToken);
@@ -144,13 +162,11 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             await this.host.notify('build-started', { cancellationToken });
 
             const adbPath = this.getAdbPath();
-            const emulatorPath = this.manager.android.getEmulator();
-            if (!adbPath || !emulatorPath) {
-                await this.host.notify('build-failed', { error: 'SDK path or emulator not configured. Run Setup Wizard.' });
+            if (!adbPath) {
+                await this.host.notify('build-failed', { error: 'SDK path not configured. Run Setup Wizard / set android-studio-lite.sdkPath.' });
                 return;
             }
 
-            // Get selected build variant for the module
             const modules = await this.manager.buildVariant.getModuleBuildVariants(this.context);
             const module = modules.find(m => m.module === moduleName && m.type === 'application');
             if (!module || !module.variants || module.variants.length === 0) {
@@ -158,7 +174,6 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 return;
             }
 
-            // Get selected variant (use first one as default)
             const selectedVariants = this.context.workspaceState.get<Record<string, string>>(
                 'android-studio-lite.selectedBuildVariants',
                 {}
@@ -166,15 +181,14 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             const variantName = selectedVariants[moduleName] || module.variants[0].name;
             const variant = module.variants.find(v => v.name === variantName) || module.variants[0];
 
-            // Get install task (e.g., installDebug, installProductionDebug)
             if (!variant.tasks.install) {
                 await this.host.notify('build-failed', { error: `No install task found for variant ${variantName}` });
                 return;
             }
 
             const installTask = variant.tasks.install;
+            const targetLabel = kind === 'physical' ? (serial as string) : (resolvedAvdName as string);
 
-            // Build and install using GradleService
             await window.withProgress(
                 {
                     location: ProgressLocation.Notification,
@@ -182,63 +196,69 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                     cancellable: true,
                 },
                 async (progress, token) => {
-                    // Link cancellation tokens
                     token.onCancellationRequested(() => {
                         cancelToken.cancel();
                         this.manager.gradle.cancelBuild();
                     });
 
                     try {
-                        // Fire-and-forget launch (if needed) + ADB poll until fully booted
-                        const bootService = new EmulatorBootService(
-                            adbPath,
-                            emulatorPath,
-                            { appendLine: (line) => this.manager.output.append(line) },
-                        );
-                        const serial = await bootService.launchAndWait(
-                            avdName,
-                            progress,
-                            cancelToken.token,
-                        );
+                        let deviceSerial: string;
+
+                        if (kind === 'physical') {
+                            progress.report({ increment: 10, message: `Using device ${serial}...` });
+                            deviceSerial = serial as string;
+                        } else {
+                            const emulatorPath = this.manager.android.getEmulator();
+                            if (!emulatorPath) {
+                                throw new Error('Emulator not configured. Run Setup Wizard or pick a physical device.');
+                            }
+                            const bootService = new EmulatorBootService(
+                                adbPath,
+                                emulatorPath,
+                                { appendLine: (line) => this.manager.output.append(line) },
+                            );
+                            deviceSerial = await bootService.launchAndWait(
+                                resolvedAvdName as string,
+                                progress,
+                                cancelToken.token,
+                            );
+                        }
 
                         if (cancelToken.token.isCancellationRequested) {
                             throw new Error('Build was cancelled');
                         }
 
                         progress.report({ increment: 0, message: `Installing ${installTask}...` });
-                        console.log(`[AVDSelectorProvider] Starting gradle install task: ${installTask}`);
+                        console.log(`[AVDSelectorProvider] Starting gradle install task: ${installTask} → ${deviceSerial}`);
 
-                        // Install variant (this will build and install)
                         await this.manager.gradle.installVariant(
                             installTask,
                             (output) => {
-                                // Show progress from Gradle output
                                 const lines = output.split('\n').filter(l => l.trim());
                                 const lastLine = lines[lines.length - 1];
                                 if (lastLine && lastLine.length < 100) {
                                     progress.report({ message: lastLine });
                                 }
                             },
-                            cancelToken.token
+                            cancelToken.token,
+                            deviceSerial,
                         );
 
                         console.log(`[AVDSelectorProvider] Gradle install task completed successfully: ${installTask}`);
 
                         progress.report({ increment: 90, message: 'Installation completed! Launching app...' });
 
-                        // Launch the app after installation
                         try {
                             const applicationId = variant.applicationId;
                             if (!applicationId) {
                                 throw new Error(`No applicationId found for variant ${variantName}. Please ensure the gradle script includes applicationId for application modules.`);
                             }
-                            await this.launchApp(applicationId, serial);
-                            LogcatService.setLastRun(this.context, applicationId, serial);
+                            await this.launchApp(applicationId, deviceSerial);
+                            LogcatService.setLastRun(this.context, applicationId, deviceSerial);
                             progress.report({ increment: 100, message: 'App launched successfully!' });
-                            window.showInformationMessage(`App installed and launched on ${avdName}`);
+                            window.showInformationMessage(`App installed and launched on ${targetLabel}`);
                         } catch (launchError: any) {
                             console.error('[AVDSelectorProvider] Error launching app:', launchError);
-                            // Don't fail the whole process if launch fails
                             progress.report({ increment: 100, message: 'Installation completed (launch failed)' });
                             window.showWarningMessage(`App installed but failed to launch: ${launchError.message || String(launchError)}`);
                         }
@@ -258,7 +278,6 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 await this.host.notify('build-cancelled', {});
                 window.showInformationMessage('Build was cancelled');
             } else {
-                // Extract error message more reliably
                 let errorMessage = this.extractBuildErrorMessage(error);
 
                 console.error('[AVDSelectorProvider] Build failed with error:', errorMessage);
@@ -556,14 +575,59 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             await this.manager.avd.getAVDList(true);
             this.manager.buildVariant.clearCache();
         }
-        await this.sendAVDList();
+        await this.sendTargets();
         await this.sendModules();
     }
 
-    private async sendAVDList(): Promise<void> {
-        const avds = await this.manager.avd.getAVDList();
-        const avdList = avds || [];
-        await this.host.notify('update-avds', { avds: avdList });
+    private pickDefaultTargetId(targets: RunTarget[]): string | undefined {
+        const physical = targets.find(t => t.kind === 'physical');
+        if (physical) {
+            return physical.id;
+        }
+        return targets[0]?.id;
+    }
+
+    private async buildRunTargets(): Promise<RunTarget[]> {
+        const targets: RunTarget[] = [];
+        const adbPath = this.getAdbPath();
+
+        if (adbPath) {
+            try {
+                const online = await listOnlineAdbDevices(adbPath);
+                for (const d of online) {
+                    targets.push({
+                        id: `physical:${d.serial}`,
+                        kind: 'physical',
+                        label: formatAdbDeviceLabel(d),
+                        serial: d.serial,
+                    });
+                }
+            } catch (error) {
+                console.error('[AVDSelectorProvider] Failed to list adb devices:', error);
+            }
+        }
+
+        try {
+            const avds = await this.manager.avd.getAVDList();
+            for (const avd of avds || []) {
+                targets.push({
+                    id: `avd:${avd.name}`,
+                    kind: 'avd',
+                    label: `AVD: ${avd.name}`,
+                    avdName: avd.name,
+                });
+            }
+        } catch (error) {
+            console.error('[AVDSelectorProvider] Failed to list AVDs:', error);
+        }
+
+        return targets;
+    }
+
+    private async sendTargets(): Promise<void> {
+        const targets = await this.buildRunTargets();
+        const selectedTargetId = this.pickDefaultTargetId(targets);
+        await this.host.notify('update-targets', { targets, selectedTargetId });
     }
 
     private async sendModules(): Promise<void> {
@@ -586,6 +650,11 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
     }
 
     dispose(): void {
+        for (const cancelToken of this.buildCancellationTokens.values()) {
+            cancelToken.cancel();
+            cancelToken.dispose();
+        }
+        this.buildCancellationTokens.clear();
         this.disposables.forEach(d => d.dispose());
     }
 }

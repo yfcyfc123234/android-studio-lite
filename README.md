@@ -8,7 +8,12 @@ You ain't going back to android studio for a while.
 
 ---
 
-## Get started in 2 minutes
+## Private fork notes (yfcyfc123234)
+
+- Device dropdown lists **online physical devices** (`adb devices`) plus local AVDs.
+- Run on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install.
+- Prefer physical device when both are available.
+
 
 1. **Install** the extension (Extensions view → search "Android Studio Lite" → Install).
 2. **Set Android SDK path**
