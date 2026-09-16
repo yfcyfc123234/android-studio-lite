@@ -7,6 +7,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ### Added
 - **Physical device support:** The Run dropdown lists online devices from `adb devices` alongside local AVDs. Running on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install/launch.
 - **Build Variant cascade:** Changing an application module's variant (e.g. `toyotaRelease`) aligns library modules to a compatible variant with the same `buildType` (and best flavor overlap), similar to Android Studio.
+- **Release Run/install:** Application release variants now expose `install*` tasks (not only `bundle`), using project-scoped paths like `:toyota:installToyotaRelease`.
 
 ## [0.0.10] - 2026-03-06
 

@@ -181,12 +181,19 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             const variantName = selectedVariants[moduleName] || module.variants[0].name;
             const variant = module.variants.find(v => v.name === variantName) || module.variants[0];
 
-            if (!variant.tasks.install) {
+            // Prefer metadata install task; fall back for older scripts that only
+            // exposed install on debug (release had bundle only).
+            let installTask = variant.tasks.install;
+            if (!installTask && module.type === 'application') {
+                const cap = variantName.charAt(0).toUpperCase() + variantName.slice(1);
+                installTask = `${moduleName}:install${cap}`;
+                console.log(`[AVDSelectorProvider] install task missing in metadata; falling back to ${installTask}`);
+            }
+            if (!installTask) {
                 await this.host.notify('build-failed', { error: `No install task found for variant ${variantName}` });
                 return;
             }
 
-            const installTask = variant.tasks.install;
             const targetLabel = kind === 'physical' ? (serial as string) : (resolvedAvdName as string);
 
             await window.withProgress(

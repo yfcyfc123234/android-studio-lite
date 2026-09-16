@@ -167,14 +167,17 @@ gradle.rootProject {
                         val variantCap = capitalize(name)
 
                         val tasks = mutableMapOf<String, String>()
-                        tasks["assemble"] = "assemble$variantCap"
+                        // Prefer project-scoped task paths for multi-module builds
+                        val projectPath = project.path
+                        tasks["assemble"] = "$projectPath:assemble$variantCap"
 
-                        if (isApp && buildType == "debug") {
-                            tasks["install"] = "install$variantCap"
+                        if (isApp) {
+                            // AGP creates install* for both debug and release application variants
+                            tasks["install"] = "$projectPath:install$variantCap"
                         }
 
                         if (isApp && buildType == "release") {
-                            tasks["bundle"] = "bundle$variantCap"
+                            tasks["bundle"] = "$projectPath:bundle$variantCap"
                         }
 
                         variantsList.add(
