@@ -2,17 +2,31 @@ import * as child_process from "child_process";
 import { showMsg, MsgType } from "./ui";
 import { window, ProgressLocation, Terminal } from 'vscode';
 import { Manager } from "../core";
+import {
+    StreamingProcessDecoder,
+    decodeProcessBuffer,
+    withJavaUtf8ProcessEnv,
+} from "../utils/processOutputEncoding";
 
 export const exec = async function (manager: Manager, command: string, willLoad: Function, didLoad: Function, cwd?: string) {
     willLoad();
 
-    const options: child_process.ExecOptions = {};
+    const options: child_process.ExecOptions & { encoding: 'buffer' } = {
+        encoding: 'buffer',
+        env: withJavaUtf8ProcessEnv(process.env),
+    };
     if (cwd) {
         options.cwd = cwd;
     }
 
     child_process.exec(command, options, (error, stdout, stderr) => {
-        didLoad(error, stdout, stderr);
+        const out = decodeProcessBuffer(stdout);
+        const err = decodeProcessBuffer(stderr);
+        if (error) {
+            (error as any).stdout = out;
+            (error as any).stderr = err;
+        }
+        didLoad(error, out, err);
     });
 };
 
@@ -45,7 +59,10 @@ export const spawn = async function (manager: Manager, showLog: boolean, command
 
     if (willLoadMsg && willLoadMsg !== "") { showMsg(MsgType.info, willLoadMsg); };
     return new Promise((resolve, reject) => {
-        const spawnOptions: child_process.SpawnOptions = { shell: true };
+        const spawnOptions: child_process.SpawnOptions = {
+            shell: true,
+            env: withJavaUtf8ProcessEnv(process.env),
+        };
         if (cwd) {
             spawnOptions.cwd = cwd;
         }
@@ -53,9 +70,11 @@ export const spawn = async function (manager: Manager, showLog: boolean, command
 
         let stdout = new StrBuffer();
         let stderr = new StrBuffer();
+        const stdoutDec = new StreamingProcessDecoder();
+        const stderrDec = new StreamingProcessDecoder();
         if (child.stdout && "on" in child.stdout) {
-            child.stdout.on('data', (data) => {
-                let buf = Buffer.from(data).toString();
+            child.stdout.on('data', (data: Buffer) => {
+                let buf = stdoutDec.push(data);
                 if (buf === "") {
                     return;
                 }
@@ -73,8 +92,8 @@ export const spawn = async function (manager: Manager, showLog: boolean, command
             });
         }
         if (child.stderr && "on" in child.stderr) {
-            child.stderr.on('data', (data) => {
-                let buf = Buffer.from(data).toString();
+            child.stderr.on('data', (data: Buffer) => {
+                let buf = stderrDec.push(data);
                 if (buf === "") {
                     return;
                 }
@@ -93,6 +112,10 @@ export const spawn = async function (manager: Manager, showLog: boolean, command
 
         child.on("error", (code) => {
             console.log("CMD Spawn - fail");
+            const outTail = stdoutDec.end();
+            const errTail = stderrDec.end();
+            if (outTail) { stdout.append(outTail); }
+            if (errTail) { stderr.append(errTail); }
             if (showLog) {
                 manager.output.append(stdout.getBufferAll());
                 manager.output.append(stderr.getBufferAll(), "error");
@@ -101,6 +124,10 @@ export const spawn = async function (manager: Manager, showLog: boolean, command
             reject(stderr.getAll());
         });
         child.on("close", (code) => {
+            const outTail = stdoutDec.end();
+            const errTail = stderrDec.end();
+            if (outTail) { stdout.append(outTail); }
+            if (errTail) { stderr.append(errTail); }
             if (showLog) {
                 manager.output.append(stdout.getBufferAll());
                 manager.output.append(stderr.getBufferAll(), "error");
@@ -125,7 +152,11 @@ export const spawnSync = async function (manager: Manager, showLog: boolean, com
 
     if (willLoadMsg && willLoadMsg !== "") { showMsg(MsgType.info, willLoadMsg); };
     return new Promise((resolve, reject) => {
-        const spawnOptions: any = { shell: false };
+        const spawnOptions: any = {
+            shell: false,
+            encoding: 'buffer',
+            env: withJavaUtf8ProcessEnv(process.env),
+        };
         if (cwd) {
             spawnOptions.cwd = cwd;
         }
@@ -138,9 +169,9 @@ export const spawnSync = async function (manager: Manager, showLog: boolean, com
             manager.output.appendTime();
         }
 
-        let stdout = result.stdout + "";
+        let stdout = decodeProcessBuffer(result.stdout || Buffer.alloc(0));
         if (result.status && result.status !== 0) {
-            let stderr = result.stderr + "";
+            let stderr = decodeProcessBuffer(result.stderr || Buffer.alloc(0));
             if (showLog) {
                 manager.output.append(stderr, "error");
             }

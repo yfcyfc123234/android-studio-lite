@@ -2,7 +2,7 @@
   "name": "android-studio-lite",
   "displayName": "Android Studio Lite (yfc)",
   "description": "Android Dev Companion for Cursor/VS Code - Device management and app lifecycle controls (private fork with physical device support)",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "publisher": "yfcyfc123234",
   "repository": {
     "type": "git",
@@ -458,6 +458,29 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Folder for screenshot PNG files when save mode is `file`. Empty = `<workspace>/screenshots` (or `~/Pictures/AndroidScreenshots` if no workspace)."
+        },
+        "android-studio-lite.processOutputEncoding": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "utf8",
+            "system",
+            "gbk",
+            "gb2312",
+            "gb18030",
+            "cp936",
+            "shift_jis",
+            "cp932",
+            "big5",
+            "cp950"
+          ],
+          "markdownDescription": "Decode encoding for Gradle/ADB process output shown in the Output panel. `auto` follows `files.encoding`, then Java extension JVM args (`java.import.gradle.jvmArguments` / `java.jdt.ls.vmargs`), then the Windows console code page (`chcp`), else UTF-8. Use `system` to always use the console code page."
+        },
+        "android-studio-lite.forceUtf8ForJava": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When the resolved output encoding is UTF-8, inject `-Dfile.encoding=UTF-8` / `-Dstdout.encoding=UTF-8` / `-Dstderr.encoding=UTF-8` into `JAVA_TOOL_OPTIONS` and `GRADLE_OPTS` for Gradle spawns so the JVM emits UTF-8 (recommended with Cursor/VS Code Output)."
         }
       }
     }
@@ -477,24 +500,25 @@
     "publish:openvsx": "npx --yes ovsx publish"
   },
   "dependencies": {
-    "lit": "^3.3.2",
-    "@lit/context": "^1.1.2"
+    "@lit/context": "^1.1.2",
+    "iconv-lite": "^0.6.3",
+    "lit": "^3.3.2"
   },
   "devDependencies": {
-    "@types/vscode": "^1.74.0",
     "@types/node": "16.x",
-    "typescript": "^5.0.0",
-    "webpack": "^5.95.0",
-    "webpack-cli": "^5.1.4",
-    "ts-loader": "^9.5.1",
+    "@types/vscode": "^1.74.0",
+    "copy-webpack-plugin": "^12.0.2",
+    "css-loader": "^7.1.2",
+    "css-minimizer-webpack-plugin": "^7.0.0",
     "esbuild-loader": "^4.1.1",
     "html-webpack-plugin": "^5.6.0",
     "mini-css-extract-plugin": "^2.9.0",
-    "css-loader": "^7.1.2",
     "sass": "^1.80.0",
     "sass-loader": "^16.0.2",
-    "css-minimizer-webpack-plugin": "^7.0.0",
     "terser-webpack-plugin": "^5.3.10",
-    "copy-webpack-plugin": "^12.0.2"
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.0.0",
+    "webpack": "^5.95.0",
+    "webpack-cli": "^5.1.4"
   }
 }

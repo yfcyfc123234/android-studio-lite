@@ -3,8 +3,12 @@ import * as path from 'path';
 import * as child_process from 'child_process';
 import { Service } from "./Service";
 import { Manager } from "../core";
-import { GradleExecutable, Command } from "../cmd/Gradle";
+import { GradleExecutable } from "../cmd/Gradle";
 import { showMsg, MsgType } from '../module/ui';
+import {
+    StreamingProcessDecoder,
+    withJavaUtf8ProcessEnv,
+} from '../utils/processOutputEncoding';
 
 export class GradleService extends Service {
     readonly manager: Manager;
@@ -42,92 +46,109 @@ export class GradleService extends Service {
             throw new Error("Gradle wrapper not found. Please ensure you are in an Android project root.");
         }
 
-        // Get command from executable
-        const commandProp = this.gradle.getCommand(Command.install);
-        const cmd = this.gradle.getCmd(commandProp, variantTask);
-
-        return new Promise<void>((resolve, reject) => {
-            // Check cancellation before starting
-            if (cancellationToken?.isCancellationRequested) {
-                reject(new Error("Build was cancelled"));
-                return;
-            }
-
-            const spawnOptions: child_process.SpawnOptions = {
-                shell: true,
-                cwd: this.workspacePath,
-                env: {
-                    ...process.env,
-                    ...(deviceSerial ? { ANDROID_SERIAL: deviceSerial } : {}),
-                },
-            };
-
-            this.buildProcess = child_process.spawn(cmd, [], spawnOptions);
-
-            let stdout = '';
-            let stderr = '';
-
-            if (this.buildProcess.stdout) {
-                this.buildProcess.stdout.on('data', (data) => {
-                    const output = Buffer.from(data).toString();
-                    stdout += output;
-                    if (onOutput) {
-                        onOutput(output);
-                    }
-                    this.manager.output.append(output);
-                });
-            }
-
-            if (this.buildProcess.stderr) {
-                this.buildProcess.stderr.on('data', (data) => {
-                    const output = Buffer.from(data).toString();
-                    stderr += output;
-                    if (onOutput) {
-                        onOutput(output);
-                    }
-                    this.manager.output.append(output, "error");
-                });
-            }
-
-            // Handle cancellation
-            if (cancellationToken) {
-                const cancellationListener = cancellationToken.onCancellationRequested(() => {
-                    if (this.buildProcess) {
-                        this.buildProcess.kill('SIGTERM');
-                        this.buildProcess = null;
-                    }
+        // Spawn wrapper with shell:false; task path is a separate argv element (never shell-interpolated).
+        const runGradleTask = (
+            taskPath: string,
+            spawnEnv: NodeJS.ProcessEnv,
+        ): Promise<{ stdout: string; stderr: string }> =>
+            new Promise((resolve, reject) => {
+                if (cancellationToken?.isCancellationRequested) {
                     reject(new Error("Build was cancelled"));
-                });
-                this.buildProcess.on('close', () => {
-                    cancellationListener.dispose();
-                });
-            }
-
-            this.buildProcess.on('error', (error) => {
-                this.buildProcess = null;
-                this.manager.output.append(stderr, "error");
-                if (notifyOnFailure) {
-                    showMsg(MsgType.error, `Failed to install ${variantTask}: ${error.message}`);
+                    return;
                 }
-                reject(error);
-            });
 
-            this.buildProcess.on('close', (code) => {
-                this.buildProcess = null;
-                if (code === 0) {
-                    showMsg(MsgType.info, `${variantTask} installed successfully.`);
-                    resolve();
-                } else {
-                    this.manager.output.append(stderr, "error");
-                    const errorMsg = stderr || stdout || `Gradle build failed with exit code ${code}`;
-                    console.error(`[GradleService] Build failed. Exit code: ${code}, stderr: ${stderr}, stdout: ${stdout}`);
-                    if (notifyOnFailure) {
-                        showMsg(MsgType.error, `Failed to install ${variantTask}. Exit code: ${code}`);
+                const spawnOptions: child_process.SpawnOptions = {
+                    shell: false,
+                    cwd: this.workspacePath,
+                    env: spawnEnv,
+                    windowsHide: true,
+                };
+
+                this.buildProcess = child_process.spawn(gradlewPath, [taskPath], spawnOptions);
+
+                let stdout = '';
+                let stderr = '';
+                const stdoutDec = new StreamingProcessDecoder();
+                const stderrDec = new StreamingProcessDecoder();
+
+                const emitOut = (text: string, isErr: boolean) => {
+                    if (!text) {
+                        return;
                     }
-                    reject(new Error(errorMsg));
+                    if (isErr) {
+                        stderr += text;
+                        onOutput?.(text);
+                        this.manager.output.append(text, "error");
+                    } else {
+                        stdout += text;
+                        onOutput?.(text);
+                        this.manager.output.append(text);
+                    }
+                };
+
+                if (this.buildProcess.stdout) {
+                    this.buildProcess.stdout.on('data', (data: Buffer) => {
+                        emitOut(stdoutDec.push(data), false);
+                    });
                 }
+
+                if (this.buildProcess.stderr) {
+                    this.buildProcess.stderr.on('data', (data: Buffer) => {
+                        emitOut(stderrDec.push(data), true);
+                    });
+                }
+
+                if (cancellationToken) {
+                    const cancellationListener = cancellationToken.onCancellationRequested(() => {
+                        if (this.buildProcess) {
+                            this.buildProcess.kill('SIGTERM');
+                            this.buildProcess = null;
+                        }
+                        reject(new Error("Build was cancelled"));
+                    });
+                    this.buildProcess.on('close', () => {
+                        cancellationListener.dispose();
+                    });
+                }
+
+                this.buildProcess.on('error', (error) => {
+                    this.buildProcess = null;
+                    reject(error);
+                });
+
+                this.buildProcess.on('close', (code) => {
+                    this.buildProcess = null;
+                    emitOut(stdoutDec.end(), false);
+                    emitOut(stderrDec.end(), true);
+                    if (code === 0) {
+                        resolve({ stdout, stderr });
+                    } else {
+                        const errorMsg = stderr || stdout || `Gradle build failed with exit code ${code}`;
+                        reject(Object.assign(new Error(errorMsg), { code, stdout, stderr }));
+                    }
+                });
             });
-        });
+
+        try {
+            await runGradleTask(variantTask, withJavaUtf8ProcessEnv({
+                ...process.env,
+                ...(deviceSerial ? { ANDROID_SERIAL: deviceSerial } : {}),
+            }));
+            showMsg(MsgType.info, `${variantTask} installed successfully.`);
+        } catch (error: any) {
+            if (error?.message === "Build was cancelled") {
+                throw error;
+            }
+            const stderr = error?.stderr || '';
+            if (stderr) {
+                this.manager.output.append(stderr, "error");
+            }
+            console.error(`[GradleService] Build failed for ${variantTask}:`, error);
+            if (notifyOnFailure) {
+                showMsg(MsgType.error, `Failed to install ${variantTask}: ${error?.message || error}`);
+            }
+            throw error instanceof Error ? error : new Error(String(error));
+        }
     }
 
     public async assembleVariant(
@@ -139,57 +160,59 @@ export class GradleService extends Service {
             throw new Error("No workspace folder found");
         }
 
-        // Check if gradlew exists
         const gradlewPath = path.join(this.workspacePath, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
         const fs = await import('fs');
         if (!fs.existsSync(gradlewPath)) {
             throw new Error("Gradle wrapper not found. Please ensure you are in an Android project root.");
         }
 
-        // Get command from executable
-        const commandProp = this.gradle.getCommand(Command.assemble);
-        const cmd = this.gradle.getCmd(commandProp, variantTask);
-
         return new Promise<void>((resolve, reject) => {
-            // Check cancellation before starting
             if (cancellationToken?.isCancellationRequested) {
                 reject(new Error("Build was cancelled"));
                 return;
             }
 
             const spawnOptions: child_process.SpawnOptions = {
-                shell: true,
+                shell: false,
                 cwd: this.workspacePath,
+                env: withJavaUtf8ProcessEnv(process.env),
+                windowsHide: true,
             };
 
-            this.buildProcess = child_process.spawn(cmd, [], spawnOptions);
+            this.buildProcess = child_process.spawn(gradlewPath, [variantTask], spawnOptions);
 
             let stdout = '';
             let stderr = '';
+            const stdoutDec = new StreamingProcessDecoder();
+            const stderrDec = new StreamingProcessDecoder();
+
+            const emitOut = (text: string, isErr: boolean) => {
+                if (!text) {
+                    return;
+                }
+                if (isErr) {
+                    stderr += text;
+                    onOutput?.(text);
+                    this.manager.output.append(text, "error");
+                } else {
+                    stdout += text;
+                    onOutput?.(text);
+                    this.manager.output.append(text);
+                }
+            };
 
             if (this.buildProcess.stdout) {
-                this.buildProcess.stdout.on('data', (data) => {
-                    const output = Buffer.from(data).toString();
-                    stdout += output;
-                    if (onOutput) {
-                        onOutput(output);
-                    }
-                    this.manager.output.append(output);
+                this.buildProcess.stdout.on('data', (data: Buffer) => {
+                    emitOut(stdoutDec.push(data), false);
                 });
             }
 
             if (this.buildProcess.stderr) {
-                this.buildProcess.stderr.on('data', (data) => {
-                    const output = Buffer.from(data).toString();
-                    stderr += output;
-                    if (onOutput) {
-                        onOutput(output);
-                    }
-                    this.manager.output.append(output, "error");
+                this.buildProcess.stderr.on('data', (data: Buffer) => {
+                    emitOut(stderrDec.push(data), true);
                 });
             }
 
-            // Handle cancellation
             if (cancellationToken) {
                 const cancellationListener = cancellationToken.onCancellationRequested(() => {
                     if (this.buildProcess) {
@@ -205,6 +228,7 @@ export class GradleService extends Service {
 
             this.buildProcess.on('error', (error) => {
                 this.buildProcess = null;
+                emitOut(stderrDec.end(), true);
                 this.manager.output.append(stderr, "error");
                 showMsg(MsgType.error, `Failed to assemble ${variantTask}: ${error.message}`);
                 reject(error);
@@ -212,6 +236,8 @@ export class GradleService extends Service {
 
             this.buildProcess.on('close', (code) => {
                 this.buildProcess = null;
+                emitOut(stdoutDec.end(), false);
+                emitOut(stderrDec.end(), true);
                 if (code === 0) {
                     showMsg(MsgType.info, `${variantTask} assembled successfully.`);
                     resolve();
