@@ -2,6 +2,11 @@
 
 All notable changes to the "Android Studio Lite" extension will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **`AVD: undefined` in Select AVD:** Empty `avdmanager list avd` output no longer yields a phantom AVD entry (list parser always pushed a blank last record). Nameless entries are filtered before the sidebar updates.
+
 ## [0.0.10] - 2026-03-06
 
 ### Changed

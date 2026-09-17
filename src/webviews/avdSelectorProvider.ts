@@ -562,7 +562,7 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
     private async sendAVDList(): Promise<void> {
         const avds = await this.manager.avd.getAVDList();
-        const avdList = avds || [];
+        const avdList = (avds || []).filter((avd) => Boolean(avd?.name));
         await this.host.notify('update-avds', { avds: avdList });
     }
 
