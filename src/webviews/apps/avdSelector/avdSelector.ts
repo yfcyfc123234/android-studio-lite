@@ -323,7 +323,8 @@ export class ASlAVDSelectorApp extends ASlElement {
         switch (message.type) {
             case 'update-avds':
                 const { avds } = message.params || {};
-                if (avds) {
+                // Only replace the list when the provider sent a fresh array; error replies omit avds.
+                if (Array.isArray(avds)) {
                     this.avds = avds;
                     if (avds.length === 0) {
                         this.selectedAVD = '';
@@ -335,7 +336,7 @@ export class ASlAVDSelectorApp extends ASlElement {
                 break;
             case 'update-modules':
                 const { modules } = message.params || {};
-                if (modules) {
+                if (Array.isArray(modules)) {
                     this.modules = modules;
                     if (modules.length === 0) {
                         this.selectedModule = '';

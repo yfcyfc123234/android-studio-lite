@@ -12,6 +12,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ### Fixed
 - **Run with no AVD:** Run stays disabled unless a real named AVD and module are selected; empty lists clear selection.
+- **Sidebar refresh:** Explicit refresh invalidates AVD/module caches (`getAVDList(true)` / `clearCache`) and always sends a terminal update so the spinner cannot stick after a failed scan.
 
 ## [0.0.10] - 2026-03-06
 

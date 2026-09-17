@@ -105,9 +105,9 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             return;
         }
         if (e.type === 'refresh-avds') {
-            void this.sendAVDList();
+            void this.sendAVDList(true);
         } else if (e.type === 'refresh-modules') {
-            void this.sendModules();
+            void this.refreshModules();
         } else if (e.type === 'select-avd') {
             const { avdName } = e.params || {};
             if (avdName) {
@@ -558,14 +558,28 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             await this.manager.avd.getAVDList(true);
             this.manager.buildVariant.clearCache();
         }
-        await this.sendAVDList();
+        await this.sendAVDList(force === true);
         await this.sendModules();
     }
 
-    private async sendAVDList(): Promise<void> {
-        const avds = await this.manager.avd.getAVDList();
-        const avdList = avds || [];
-        await this.host.notify('update-avds', { avds: avdList });
+    /** Explicit sidebar refresh: drop module cache then rescan. */
+    private async refreshModules(): Promise<void> {
+        this.manager.buildVariant.clearCache();
+        await this.sendModules();
+    }
+
+    private async sendAVDList(force = false): Promise<void> {
+        try {
+            const avds = await this.manager.avd.getAVDList(force);
+            const avdList = avds || [];
+            await this.host.notify('update-avds', { avds: avdList });
+        } catch (error) {
+            console.error('[AVDSelectorProvider] Error sending AVDs:', error);
+            // Terminal notify so the sidebar refresh spinner always clears; keep prior list in the webview.
+            await this.host.notify('update-avds', {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
     }
 
     private async sendModules(): Promise<void> {
@@ -579,7 +593,10 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             await this.host.notify('update-modules', { modules });
         } catch (error) {
             console.error('[AVDSelectorProvider] Error sending modules:', error);
-            await this.host.notify('update-modules', { modules: [] });
+            await this.host.notify('update-modules', {
+                modules: [],
+                error: error instanceof Error ? error.message : String(error),
+            });
         }
     }
 
