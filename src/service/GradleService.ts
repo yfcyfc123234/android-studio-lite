@@ -72,19 +72,20 @@ export class GradleService extends Service {
                 const stdoutDec = new StreamingProcessDecoder();
                 const stderrDec = new StreamingProcessDecoder();
 
-                const emitOut = (text: string, isErr: boolean) => {
+                const emitOut = (text: string, _isErr: boolean) => {
                     if (!text) {
                         return;
                     }
-                    if (isErr) {
+                    // Gradle writes progress to both stdout and stderr; JVM also prints
+                    // "Picked up JAVA_TOOL_OPTIONS" on stderr. Do not tag every stderr
+                    // chunk as [ERR] — that produced fake "[ERR] -8" when "UTF-8" split.
+                    if (_isErr) {
                         stderr += text;
-                        onOutput?.(text);
-                        this.manager.output.append(text, "error");
                     } else {
                         stdout += text;
-                        onOutput?.(text);
-                        this.manager.output.append(text);
                     }
+                    onOutput?.(text);
+                    this.manager.output.appendStream(text);
                 };
 
                 if (this.buildProcess.stdout) {
@@ -121,7 +122,12 @@ export class GradleService extends Service {
                     this.buildProcess = null;
                     emitOut(stdoutDec.end(), false);
                     emitOut(stderrDec.end(), true);
-                    if (code === 0) {
+                    // Windows cmd quirks can report a bogus non-zero code after success
+                    const ok =
+                        code === 0 ||
+                        /\bBUILD SUCCESSFUL\b/.test(stdout) ||
+                        /\bBUILD SUCCESSFUL\b/.test(stderr);
+                    if (ok) {
                         resolve({ stdout, stderr });
                     } else {
                         const errorMsg = stderr || stdout || `Gradle build failed with exit code ${code}`;
@@ -140,17 +146,10 @@ export class GradleService extends Service {
             if (error?.message === "Build was cancelled") {
                 throw error;
             }
-            const stderr = error?.stderr || '';
-            if (stderr) {
-                this.manager.output.append(stderr, "error");
-            }
             console.error(`[GradleService] Build failed for ${variantTask}:`, error);
             if (notifyOnFailure) {
                 const raw = String(error?.message || error);
-                const hint = /EINVAL/i.test(raw)
-                    ? ' (Windows cannot spawn gradlew.bat without cmd — please update Android Studio Lite)'
-                    : '';
-                showMsg(MsgType.error, `Failed to install ${variantTask}: ${raw}${hint}`);
+                showMsg(MsgType.error, `Failed to install ${variantTask}: ${raw}`);
             }
             throw error instanceof Error ? error : new Error(String(error));
         }
@@ -190,19 +189,17 @@ export class GradleService extends Service {
             const stdoutDec = new StreamingProcessDecoder();
             const stderrDec = new StreamingProcessDecoder();
 
-            const emitOut = (text: string, isErr: boolean) => {
+            const emitOut = (text: string, _isErr: boolean) => {
                 if (!text) {
                     return;
                 }
-                if (isErr) {
+                if (_isErr) {
                     stderr += text;
-                    onOutput?.(text);
-                    this.manager.output.append(text, "error");
                 } else {
                     stdout += text;
-                    onOutput?.(text);
-                    this.manager.output.append(text);
                 }
+                onOutput?.(text);
+                this.manager.output.appendStream(text);
             };
 
             if (this.buildProcess.stdout) {
@@ -233,7 +230,6 @@ export class GradleService extends Service {
             this.buildProcess.on('error', (error) => {
                 this.buildProcess = null;
                 emitOut(stderrDec.end(), true);
-                this.manager.output.append(stderr, "error");
                 showMsg(MsgType.error, `Failed to assemble ${variantTask}: ${error.message}`);
                 reject(error);
             });
@@ -242,11 +238,14 @@ export class GradleService extends Service {
                 this.buildProcess = null;
                 emitOut(stdoutDec.end(), false);
                 emitOut(stderrDec.end(), true);
-                if (code === 0) {
+                const ok =
+                    code === 0 ||
+                    /\bBUILD SUCCESSFUL\b/.test(stdout) ||
+                    /\bBUILD SUCCESSFUL\b/.test(stderr);
+                if (ok) {
                     showMsg(MsgType.info, `${variantTask} assembled successfully.`);
                     resolve();
                 } else {
-                    this.manager.output.append(stderr, "error");
                     showMsg(MsgType.error, `Failed to assemble ${variantTask}. Exit code: ${code}`);
                     reject(new Error(`Gradle build failed with exit code ${code}`));
                 }

@@ -68,17 +68,46 @@ export class Output {
     constructor(name: string) {
         this.output = window.createOutputChannel(name);
     }
+    /**
+     * Append text to the Output channel.
+     * Streaming process chunks must not force a newline per chunk (that splits words
+     * like "UP-TO-DATE" / "reachable" across lines). One-shot messages without `\n`
+     * still get a trailing newline via appendLine.
+     */
     public append(msg: string, level: string = "info") {
-        let o = msg;
         if (msg === "") {
             return;
         }
 
         if (level === "error") {
-            o = "[ERR] " + msg;
+            // Prefer line-wise [ERR] prefix for multi-line blobs; single chunk streams use raw append
+            if (msg.includes("\n") || msg.includes("\r")) {
+                const parts = msg.split(/\r?\n/);
+                for (let i = 0; i < parts.length; i++) {
+                    const line = parts[i];
+                    if (i === parts.length - 1 && line === "") {
+                        break;
+                    }
+                    this.output.appendLine("[ERR] " + line);
+                }
+            } else {
+                this.output.appendLine("[ERR] " + msg);
+            }
+            return;
         }
 
-        this.output.appendLine(o);
+        if (msg.includes("\n") || msg.includes("\r")) {
+            this.output.append(msg);
+        } else {
+            this.output.appendLine(msg);
+        }
+    }
+
+    /** Raw stream append (no forced newline, no [ERR] prefix). */
+    public appendStream(msg: string) {
+        if (msg) {
+            this.output.append(msg);
+        }
     }
 
     public appendTime() {
