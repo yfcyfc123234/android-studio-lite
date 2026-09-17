@@ -37,7 +37,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ## [0.0.16] - 2026-09-16
 
 ### Fixed
-- **Gradle/ADB Output mojibake on Windows:** Process stdout/stderr is decoded with a code-page–aware path (`iconv-lite`) instead of always UTF-8. `auto` follows `files.encoding`, Java extension JVM args, then `chcp`; optional `forceUtf8ForJava` injects UTF-8 JVM flags when decoding as UTF-8. Settings: `android-studio-lite.processOutputEncoding`, `android-studio-lite.forceUtf8ForJava`.
+- **Gradle/ADB Output mojibake on Windows:** Process stdout/stderr is decoded with a code-page–aware path (`iconv-lite`) instead of always UTF-8. `auto` follows `files.encoding`, Java extension JVM args, then `chcp`; optional `forceUtf8ForJava` injects UTF-8 JVM flags when decoding as UTF-8. Settings: `android-studio-lite.processOutputEncoding`, `android-studio-lite.forceUtf8ForJava`. Also ship `iconv-lite` in the VSIX (was excluded by `.vscodeignore`).
 - **AGP 9 module discovery:** Build Variant / Module dropdown no longer stays empty on AGP 9 (`android.newDsl`). The init script now collects variants via `androidComponents.onVariants`, and still falls back to legacy `applicationVariants` / `libraryVariants` for AGP 7/8 or `android.newDsl=false`.
 
 ### Added

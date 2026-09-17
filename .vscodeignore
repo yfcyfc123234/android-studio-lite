@@ -1,4 +1,4 @@
-.vscode/**
+﻿.vscode/**
 .vscode-test/**
 src/**
 .gitignore
@@ -13,6 +13,14 @@ package-lock.json
 *.log
 .eslintcache
 node_modules/**
+# Production runtime deps for extension host (webviews are webpack-bundled)
+!node_modules/iconv-lite/**
+!node_modules/safer-buffer/**
+node_modules/iconv-lite/.idea/**
+node_modules/iconv-lite/.github/**
+node_modules/safer-buffer/tests.js
+node_modules/safer-buffer/dangerous.js
+node_modules/safer-buffer/Porting-Buffer.md
 out/**/*.map
 dist/webviews/*.map
 # Exclude build scripts (not needed in published extension)
