@@ -109,28 +109,27 @@ export function decodeProcessBuffer(data: Buffer | string, encoding = resolvePro
 }
 
 /**
- * Streaming decoder: holds trailing incomplete multi-byte sequences across chunks.
+ * Streaming decoder: only holds trailing bytes that form an incomplete multi-byte
+ * character. Blindly holding N bytes was splitting ASCII words (e.g. "UTF-8" → "UTF"
+ * then orphan "-8" tagged as [ERR]).
  */
 export class StreamingProcessDecoder {
 	private leftover = Buffer.alloc(0);
 	private readonly encoding: string;
-	private readonly holdBytes: number;
 
 	constructor(encoding = resolveProcessOutputEncoding()) {
 		this.encoding = normalizeCodecName(encoding);
-		this.holdBytes = this.encoding === 'utf8' || this.encoding === 'utf-8' ? 3 : 2;
 	}
 
 	push(chunk: Buffer | string): string {
 		const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string, 'binary');
 		const data = Buffer.concat([this.leftover, buf]);
-		if (data.length <= this.holdBytes) {
-			this.leftover = data;
+		const incomplete = countIncompleteTrailingBytes(data, this.encoding);
+		const emit = data.subarray(0, data.length - incomplete);
+		this.leftover = data.subarray(data.length - incomplete);
+		if (emit.length === 0) {
 			return '';
 		}
-		const emitLen = data.length - this.holdBytes;
-		const emit = data.subarray(0, emitLen);
-		this.leftover = data.subarray(emitLen);
 		return decodeProcessBuffer(emit, this.encoding);
 	}
 
@@ -142,6 +141,67 @@ export class StreamingProcessDecoder {
 		this.leftover = Buffer.alloc(0);
 		return text;
 	}
+}
+
+/** Bytes at end of `data` that are not yet a complete character for `encoding`. */
+function countIncompleteTrailingBytes(data: Buffer, encoding: string): number {
+	if (data.length === 0) {
+		return 0;
+	}
+	const enc = normalizeCodecName(encoding);
+	if (enc === 'utf8' || enc === 'utf-8') {
+		return utf8IncompleteTail(data);
+	}
+	// GBK / GB2312 / CP936 / Big5 / Shift_JIS: trail byte completes a 2-byte char
+	if (
+		enc === 'gbk' ||
+		enc === 'gb2312' ||
+		enc === 'gb18030' ||
+		enc === 'cp936' ||
+		enc === 'big5' ||
+		enc === 'cp950' ||
+		enc === 'shift_jis' ||
+		enc === 'cp932'
+	) {
+		return dbcsIncompleteTail(data);
+	}
+	return 0;
+}
+
+function utf8IncompleteTail(data: Buffer): number {
+	// Scan back for start of a multi-byte sequence that isn't finished
+	const max = Math.min(3, data.length);
+	for (let n = 1; n <= max; n++) {
+		const b = data[data.length - n];
+		if (b <= 0x7f) {
+			return 0; // ASCII — complete
+		}
+		if (b >= 0xc0) {
+			// lead byte; expected length
+			const need = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : 2;
+			return n < need ? n : 0;
+		}
+		// continuation 0x80-0xbf — keep scanning
+	}
+	return 0;
+}
+
+function dbcsIncompleteTail(data: Buffer): number {
+	// Walk from start; if we end mid-pair, hold 1 byte
+	let i = 0;
+	while (i < data.length) {
+		const b = data[i];
+		if (b < 0x80) {
+			i += 1;
+			continue;
+		}
+		// lead byte — needs one trail
+		if (i + 1 >= data.length) {
+			return 1;
+		}
+		i += 2;
+	}
+	return 0;
 }
 
 function encodingHintFromJavaSettings(): string | undefined {

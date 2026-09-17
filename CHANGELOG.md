@@ -5,6 +5,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ## [Unreleased]
 
 ### Fixed
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - **Gradle/ADB Output mojibake on Windows:** Process stdout/stderr is decoded with a code-page–aware path (`iconv-lite`) instead of always UTF-8. `auto` follows `files.encoding`, Java extension JVM args, then `chcp`; optional `forceUtf8ForJava` injects UTF-8 JVM flags when decoding as UTF-8. Settings: `android-studio-lite.processOutputEncoding`, `android-studio-lite.forceUtf8ForJava`.
 - **AGP 9 module discovery:** Build Variant / Module dropdown no longer stays empty on AGP 9 (`android.newDsl`). The init script now collects variants via `androidComponents.onVariants`, and still falls back to legacy `applicationVariants` / `libraryVariants` for AGP 7/8 or `android.newDsl=false`.
@@ -37,6 +38,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 - **Logcat toggle:** Always visible in the AVD selector. Turning it on starts app-only logcat and shows the Logcat channel; turning it off stops the stream and shows the Android Studio Lite channel.
 
 ### Fixed
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - "Logcat services not initialized" no longer appears; Logcat is always available in this build.
 
@@ -48,6 +50,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 - **Emulator boot service:** Run flow now uses fire-and-forget emulator spawn (`detached: true`, `stdio: 'ignore'`, `unref()`) so the extension no longer hangs waiting for the emulator process. ADB polling runs in parallel to detect when the device is fully booted before building/installing.
 
 ### Fixed
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - **Module config fetched twice:** Coalesced concurrent `getModuleBuildVariants` calls so multiple callers (bootstrap, onReady, refresh-modules) share a single in-flight promise and Gradle is only run once.
 - **Webview reload on activity bar switch:** Set `retainContextWhenHidden: true` for webview views so the Android Studio Lite panel no longer reloads when switching between Git, Explorer, and Android Studio Lite.
@@ -60,6 +63,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ## [0.0.7] - 2025-03-06
 
 ### Fixed
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - Extension no longer fails to activate when `out/commands`, `out/providers`, or `out/services` are missing (e.g. when building VSIX from a tag without those sources). Logcat modules are loaded optionally; logcat commands show a message when logcat is unavailable.
 
@@ -73,6 +77,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 - Toggle button component with macOS-style design
 
 ### Fixed
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - Fixed logcat commands not being registered in extension activation
 - Fixed device selection requirement for logcat (now auto-selects first available device)
@@ -87,6 +92,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ## [0.0.2] - 2025-01-11
 
 ### Fixed
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - Fixed build variants not loading in published extension by including Gradle init script in package
 - Fixed modules not appearing in webview dropdown due to missing Gradle script
