@@ -4,7 +4,12 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+### Added
+- **Sidebar refresh:** Icon buttons next to Select Device / Select Module to re-scan devices/AVDs and Gradle modules.
+
 ### Fixed
+- **`AVD: undefined` in Select Device:** Empty `avdmanager list avd` output no longer yields a phantom AVD entry (list parser always pushed a blank last record).
+- **Run with no device:** Run stays disabled unless a real physical/emulator/AVD target is selected (empty list clears selection).
 - **Run button stuck on Building… after failure:** Notify `build-failed` before awaiting error UI.
 - **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr chunks are not prefixed `[ERR]` (JVM `JAVA_TOOL_OPTIONS` / `UTF-8` split caused orphan `-8`). Gradle spawn on Windows uses allowlisted `shell: true`; treat `BUILD SUCCESSFUL` as success even if exit code is quirky.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects spawning `gradlew.bat` with `shell: false` (CVE-2024-27980). Launch via `cmd.exe /c` with the Gradle task as a separate argv.

@@ -1,5 +1,6 @@
 import { css, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { ASlElement } from '../shared/components/element.js';
 import { elementBase } from '../shared/components/styles/base.css.js';
 import '../shared/components/dropdown.js';
@@ -20,6 +21,11 @@ const progressSpinnerIcon = `<svg width="16" height="16" viewBox="0 0 16 16" fil
 <rect x="3.05029" y="14.364" width="2" height="5" rx="1" transform="rotate(-135 3.05029 14.364)" fill="white" fill-opacity="0.5"/>
 <rect y="9" width="2" height="5" rx="1" transform="rotate(-90 0 9)" fill="white" fill-opacity="0.6"/>
 <rect x="1.63599" y="3.05025" width="2" height="5" rx="1" transform="rotate(-45 1.63599 3.05025)" fill="white" fill-opacity="0.7"/>
+</svg>`;
+
+/** Codicon-style refresh (uses currentColor for light/dark). */
+const refreshIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M13.6569 2.34315C12.1566 0.842855 10.1421 0 8 0C3.58172 0 0 3.58172 0 8H1.5C1.5 4.41015 4.41015 1.5 8 1.5C9.65685 1.5 11.1566 2.17157 12.2426 3.25736L10.5 5H14.5V1L13.6569 2.34315ZM2.34315 13.6569C3.84345 15.1571 5.85786 16 8 16C12.4183 16 16 12.4183 16 8H14.5C14.5 11.5899 11.5899 14.5 8 14.5C6.34315 14.5 4.84345 13.8284 3.75736 12.7426L5.5 11H1.5V15L2.34315 13.6569Z"/>
 </svg>`;
 
 /** Unified run target: online device (physical/emulator) or local AVD. */
@@ -76,7 +82,48 @@ export class ASlAVDSelectorApp extends ASlElement {
 				font-size: 0.75rem;
 				font-weight: 500;
 				color: var(--vscode-descriptionForeground);
+				margin-bottom: 0;
+			}
+
+			.dropdown-label-row {
+				display: flex;
+				align-items: center;
+				justify-content: flex-start;
+				gap: 0.25rem;
 				margin-bottom: 0.25rem;
+			}
+
+			.refresh-btn {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				width: 22px;
+				height: 22px;
+				padding: 0;
+				border: none;
+				border-radius: 4px;
+				cursor: pointer;
+				color: var(--vscode-icon-foreground, var(--vscode-foreground));
+				background: transparent;
+			}
+
+			.refresh-btn:hover:not(:disabled) {
+				background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+			}
+
+			.refresh-btn:disabled {
+				cursor: default;
+				opacity: 0.5;
+			}
+
+			.refresh-btn.spinning svg {
+				animation: spin 0.8s linear infinite;
+			}
+
+			@keyframes spin {
+				to {
+					transform: rotate(360deg);
+				}
 			}
 
 			.button-group {
@@ -144,6 +191,12 @@ export class ASlAVDSelectorApp extends ASlElement {
     @state()
     private isAndroidProject: boolean = true;
 
+    @state()
+    private refreshingTargets: boolean = false;
+
+    @state()
+    private refreshingModules: boolean = false;
+
     private vscode: any;
     private buildCancellationToken: string | null = null;
 
@@ -163,6 +216,24 @@ export class ASlAVDSelectorApp extends ASlElement {
         }));
     }
 
+    /** Run only when a real device/emulator/AVD and an application module are selected. */
+    private get canRun(): boolean {
+        if (this.isBuilding || !this.selectedModule) {
+            return false;
+        }
+        const target = this.targets.find(t => t.id === this.selectedTargetId);
+        if (!target) {
+            return false;
+        }
+        if (target.kind === 'physical' || target.kind === 'emulator') {
+            return Boolean(target.serial);
+        }
+        if (target.kind === 'avd') {
+            return Boolean(target.avdName);
+        }
+        return false;
+    }
+
     private applyTargets(targets: RunTarget[], preferredId?: string) {
         this.targets = targets || [];
         // Keep the user's current selection across refreshes when it is still valid.
@@ -171,6 +242,10 @@ export class ASlAVDSelectorApp extends ASlElement {
         }
         if (preferredId && this.targets.some(t => t.id === preferredId)) {
             this.selectedTargetId = preferredId;
+            return;
+        }
+        if (this.targets.length === 0) {
+            this.selectedTargetId = '';
             return;
         }
         const physical = this.targets.find(t => t.kind === 'physical');
@@ -205,7 +280,7 @@ export class ASlAVDSelectorApp extends ASlElement {
     }
 
     private handleRunClick() {
-        if (!this.selectedTargetId || !this.selectedModule || this.isBuilding) {
+        if (!this.canRun) {
             return;
         }
 
@@ -271,11 +346,28 @@ export class ASlAVDSelectorApp extends ASlElement {
         });
     }
 
+    private handleRefreshTargetsClick() {
+        if (!this.vscode || this.refreshingTargets) {
+            return;
+        }
+        this.refreshingTargets = true;
+        this.vscode.postMessage({ type: 'refresh-targets' });
+    }
+
+    private handleRefreshModulesClick() {
+        if (!this.vscode || this.refreshingModules) {
+            return;
+        }
+        this.refreshingModules = true;
+        this.vscode.postMessage({ type: 'refresh-modules' });
+    }
+
     private handleMessage = (event: MessageEvent) => {
         const message = event.data;
         switch (message.type) {
             case 'update-targets':
                 this.applyTargets(message.params?.targets || [], message.params?.selectedTargetId);
+                this.refreshingTargets = false;
                 break;
             case 'update-modules':
                 const { modules } = message.params || {};
@@ -285,6 +377,7 @@ export class ASlAVDSelectorApp extends ASlElement {
                         this.selectedModule = modules[0].module;
                     }
                 }
+                this.refreshingModules = false;
                 break;
             case 'webview/ready':
                 if (message.params && message.params.state) {
@@ -413,7 +506,18 @@ export class ASlAVDSelectorApp extends ASlElement {
 				<h2 class="section-title">Android Studio Lite</h2>
 
 				<div class="dropdown-container">
-					<div class="dropdown-label">Select Device</div>
+					<div class="dropdown-label-row">
+						<div class="dropdown-label">Select Device</div>
+						<button
+							class="refresh-btn ${this.refreshingTargets ? 'spinning' : ''}"
+							title="Refresh devices"
+							aria-label="Refresh devices"
+							?disabled=${this.refreshingTargets}
+							@click=${this.handleRefreshTargetsClick}
+						>
+							${unsafeHTML(refreshIcon)}
+						</button>
+					</div>
 					<asl-dropdown
 						.options=${this.targetOptions}
 						.value=${this.selectedTargetId}
@@ -423,7 +527,18 @@ export class ASlAVDSelectorApp extends ASlElement {
 				</div>
 
 				<div class="dropdown-container">
-					<div class="dropdown-label">Select Module</div>
+					<div class="dropdown-label-row">
+						<div class="dropdown-label">Select Module</div>
+						<button
+							class="refresh-btn ${this.refreshingModules ? 'spinning' : ''}"
+							title="Refresh modules"
+							aria-label="Refresh modules"
+							?disabled=${this.refreshingModules}
+							@click=${this.handleRefreshModulesClick}
+						>
+							${unsafeHTML(refreshIcon)}
+						</button>
+					</div>
 					<asl-dropdown
 						.options=${this.moduleOptions}
 						.value=${this.selectedModule}
@@ -436,7 +551,7 @@ export class ASlAVDSelectorApp extends ASlElement {
 					<asl-button
 						icon=${this.isBuilding ? progressSpinnerIcon : playIcon}
 						label=${this.isBuilding ? 'Building...' : 'Run'}
-						?disabled=${!this.selectedTargetId || !this.selectedModule || this.isBuilding}
+						?disabled=${!this.canRun}
 						@button-click=${this.handleRunClick}
 					></asl-button>
 					<asl-button

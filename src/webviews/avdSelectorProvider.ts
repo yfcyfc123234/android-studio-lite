@@ -181,7 +181,11 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                     : undefined);
 
         if (!moduleName || (kind === 'avd' && !resolvedAvdName) || ((kind === 'physical' || kind === 'emulator') && !serial)) {
-            await this.host.notify('build-failed', { error: 'Device and Module must be selected' });
+            await this.host.notify('build-failed', { error: 'No device or emulator selected. Connect a device, start an emulator, or pick a valid AVD.' });
+            return;
+        }
+        if (kind === 'avd' && (resolvedAvdName === 'undefined' || resolvedAvdName === 'null')) {
+            await this.host.notify('build-failed', { error: 'No device or emulator selected. Connect a device, start an emulator, or pick a valid AVD.' });
             return;
         }
 
@@ -773,6 +777,9 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         try {
             const avds = await this.manager.avd.getAVDList();
             for (const avd of avds || []) {
+                if (!avd?.name) {
+                    continue;
+                }
                 targets.push({
                     id: `avd:${avd.name}`,
                     kind: 'avd',

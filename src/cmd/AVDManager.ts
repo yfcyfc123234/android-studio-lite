@@ -163,8 +163,10 @@ function listParser(rows: string[], splitter: string, startFrom: number, firstFi
         }
 
     }
-    //push last one
-    data.push(current);
+    // Only push the last record if we actually started one (found firstField at least once).
+    if (count > -1) {
+        data.push(current);
+    }
 
     return data;
 }
