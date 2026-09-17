@@ -4,6 +4,9 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
+### Fixed
+- **Windows `spawn EINVAL` on Run/Install:** Node rejects spawning `gradlew.bat` with `shell: false` (CVE-2024-27980). Launch via `cmd.exe /c` with the Gradle task as a separate argv.
+
 ## [0.0.22] - 2026-09-16
 
 ### Changed

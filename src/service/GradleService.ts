@@ -9,6 +9,7 @@ import {
     StreamingProcessDecoder,
     withJavaUtf8ProcessEnv,
 } from '../utils/processOutputEncoding';
+import { spawnGradleWrapper } from '../utils/gradleSpawn';
 
 export class GradleService extends Service {
     readonly manager: Manager;
@@ -46,7 +47,7 @@ export class GradleService extends Service {
             throw new Error("Gradle wrapper not found. Please ensure you are in an Android project root.");
         }
 
-        // Spawn wrapper with shell:false; task path is a separate argv element (never shell-interpolated).
+        // Spawn Gradle wrapper (Windows uses cmd /c for .bat; task stays a separate argv).
         const runGradleTask = (
             taskPath: string,
             spawnEnv: NodeJS.ProcessEnv,
@@ -57,14 +58,14 @@ export class GradleService extends Service {
                     return;
                 }
 
+                // Windows: cmd.exe /c gradlew.bat <task> (CVE-2024-27980 — cannot spawn .bat with shell:false)
                 const spawnOptions: child_process.SpawnOptions = {
-                    shell: false,
                     cwd: this.workspacePath,
                     env: spawnEnv,
                     windowsHide: true,
                 };
 
-                this.buildProcess = child_process.spawn(gradlewPath, [taskPath], spawnOptions);
+                this.buildProcess = spawnGradleWrapper(gradlewPath, [taskPath], spawnOptions);
 
                 let stdout = '';
                 let stderr = '';
@@ -145,7 +146,11 @@ export class GradleService extends Service {
             }
             console.error(`[GradleService] Build failed for ${variantTask}:`, error);
             if (notifyOnFailure) {
-                showMsg(MsgType.error, `Failed to install ${variantTask}: ${error?.message || error}`);
+                const raw = String(error?.message || error);
+                const hint = /EINVAL/i.test(raw)
+                    ? ' (Windows cannot spawn gradlew.bat without cmd — please update Android Studio Lite)'
+                    : '';
+                showMsg(MsgType.error, `Failed to install ${variantTask}: ${raw}${hint}`);
             }
             throw error instanceof Error ? error : new Error(String(error));
         }
@@ -173,13 +178,12 @@ export class GradleService extends Service {
             }
 
             const spawnOptions: child_process.SpawnOptions = {
-                shell: false,
                 cwd: this.workspacePath,
                 env: withJavaUtf8ProcessEnv(process.env),
                 windowsHide: true,
             };
 
-            this.buildProcess = child_process.spawn(gradlewPath, [variantTask], spawnOptions);
+            this.buildProcess = spawnGradleWrapper(gradlewPath, [variantTask], spawnOptions);
 
             let stdout = '';
             let stderr = '';
