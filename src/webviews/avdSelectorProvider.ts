@@ -320,13 +320,12 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                                     { __aslPresented: true },
                                 );
                             } else {
-                                await presentRunError(installError, {
-                                    plainMessage: this.extractBuildErrorMessage(installError),
-                                    toastPrefix: 'Install failed',
-                                });
+                                // Do not await error UI here — it would keep withProgress ("Building…")
+                                // and the Run button stuck until the user dismisses the message.
+                                // Outer catch notifies build-failed first, then presents the error.
                                 throw Object.assign(
                                     new Error(this.extractBuildErrorMessage(installError)),
-                                    { __aslPresented: true },
+                                    { __aslInstallError: installError },
                                 );
                             }
                         }
@@ -365,12 +364,14 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 await this.host.notify('build-cancelled', {});
                 window.showInformationMessage('Build was cancelled');
             } else {
-                const errorMessage = this.extractBuildErrorMessage(error);
+                const sourceError = error?.__aslInstallError || error;
+                const errorMessage = this.extractBuildErrorMessage(sourceError);
                 console.error('[AVDSelectorProvider] Build failed with error:', errorMessage);
                 console.error('[AVDSelectorProvider] Full error object:', error);
+                // Reset Run button before any modal/toast so UI does not stay on "Building..."
                 await this.host.notify('build-failed', { error: errorMessage });
                 if (!error?.__aslPresented) {
-                    await presentRunError(error, {
+                    await presentRunError(sourceError, {
                         plainMessage: errorMessage,
                         toastPrefix: 'Build failed',
                     });
