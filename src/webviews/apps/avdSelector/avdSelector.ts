@@ -366,14 +366,18 @@ export class ASlAVDSelectorApp extends ASlElement {
         const message = event.data;
         switch (message.type) {
             case 'update-targets':
-                this.applyTargets(message.params?.targets || [], message.params?.selectedTargetId);
+                if (Array.isArray(message.params?.targets)) {
+                    this.applyTargets(message.params.targets, message.params?.selectedTargetId);
+                }
                 this.refreshingTargets = false;
                 break;
             case 'update-modules':
                 const { modules } = message.params || {};
-                if (modules) {
+                if (Array.isArray(modules)) {
                     this.modules = modules;
-                    if (!this.selectedModule && modules.length > 0) {
+                    if (modules.length === 0) {
+                        this.selectedModule = '';
+                    } else if (!this.selectedModule || !modules.some((m: Module) => m.module === this.selectedModule)) {
                         this.selectedModule = modules[0].module;
                     }
                 }

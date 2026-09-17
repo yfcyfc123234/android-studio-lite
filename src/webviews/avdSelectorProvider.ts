@@ -124,9 +124,9 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             return;
         }
         if (e.type === 'refresh-targets' || e.type === 'refresh-avds') {
-            void this.sendTargets();
+            void this.sendTargets(true);
         } else if (e.type === 'refresh-modules') {
-            void this.sendModules();
+            void this.refreshModules();
         } else if (e.type === 'select-target' || e.type === 'select-avd') {
             const targetId = e.params?.targetId || (e.params?.avdName ? `avd:${e.params.avdName}` : undefined);
             if (targetId) {
@@ -729,7 +729,12 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             await this.manager.avd.getAVDList(true);
             this.manager.buildVariant.clearCache();
         }
-        await this.sendTargets();
+        await this.sendTargets(force === true);
+        await this.sendModules();
+    }
+
+    private async refreshModules(): Promise<void> {
+        this.manager.buildVariant.clearCache();
         await this.sendModules();
     }
 
@@ -745,7 +750,7 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         return targets[0]?.id;
     }
 
-    private async buildRunTargets(): Promise<RunTarget[]> {
+    private async buildRunTargets(forceAvdList = false): Promise<RunTarget[]> {
         const targets: RunTarget[] = [];
         const adbPath = this.getAdbPath();
 
@@ -775,7 +780,7 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         }
 
         try {
-            const avds = await this.manager.avd.getAVDList();
+            const avds = await this.manager.avd.getAVDList(forceAvdList);
             for (const avd of avds || []) {
                 if (!avd?.name) {
                     continue;
@@ -794,16 +799,23 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         return targets;
     }
 
-    private async sendTargets(): Promise<void> {
-        const targets = await this.buildRunTargets();
-        const saved =
-            this.selectedTargetId ||
-            this.context.workspaceState.get<string>(SELECTED_TARGET_ID_KEY);
-        const selectedTargetId =
-            (saved && targets.some(t => t.id === saved) ? saved : undefined) ||
-            this.pickDefaultTargetId(targets);
-        this.selectedTargetId = selectedTargetId;
-        await this.host.notify('update-targets', { targets, selectedTargetId });
+    private async sendTargets(force = false): Promise<void> {
+        try {
+            const targets = await this.buildRunTargets(force);
+            const saved =
+                this.selectedTargetId ||
+                this.context.workspaceState.get<string>(SELECTED_TARGET_ID_KEY);
+            const selectedTargetId =
+                (saved && targets.some(t => t.id === saved) ? saved : undefined) ||
+                this.pickDefaultTargetId(targets);
+            this.selectedTargetId = selectedTargetId;
+            await this.host.notify('update-targets', { targets, selectedTargetId });
+        } catch (error) {
+            console.error('[AVDSelectorProvider] Error sending targets:', error);
+            await this.host.notify('update-targets', {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
     }
 
     private async sendModules(): Promise<void> {
@@ -817,7 +829,10 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             await this.host.notify('update-modules', { modules });
         } catch (error) {
             console.error('[AVDSelectorProvider] Error sending modules:', error);
-            await this.host.notify('update-modules', { modules: [] });
+            await this.host.notify('update-modules', {
+                modules: [],
+                error: error instanceof Error ? error.message : String(error),
+            });
         }
     }
 
