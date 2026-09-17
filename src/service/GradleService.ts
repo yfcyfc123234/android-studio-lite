@@ -5,6 +5,10 @@ import { Service } from "./Service";
 import { Manager } from "../core";
 import { GradleExecutable } from "../cmd/Gradle";
 import { showMsg, MsgType } from '../module/ui';
+import {
+    StreamingProcessDecoder,
+    withJavaUtf8ProcessEnv,
+} from '../utils/processOutputEncoding';
 
 export class GradleService extends Service {
     readonly manager: Manager;
@@ -64,26 +68,33 @@ export class GradleService extends Service {
 
                 let stdout = '';
                 let stderr = '';
+                const stdoutDec = new StreamingProcessDecoder();
+                const stderrDec = new StreamingProcessDecoder();
+
+                const emitOut = (text: string, isErr: boolean) => {
+                    if (!text) {
+                        return;
+                    }
+                    if (isErr) {
+                        stderr += text;
+                        onOutput?.(text);
+                        this.manager.output.append(text, "error");
+                    } else {
+                        stdout += text;
+                        onOutput?.(text);
+                        this.manager.output.append(text);
+                    }
+                };
 
                 if (this.buildProcess.stdout) {
-                    this.buildProcess.stdout.on('data', (data) => {
-                        const output = Buffer.from(data).toString();
-                        stdout += output;
-                        if (onOutput) {
-                            onOutput(output);
-                        }
-                        this.manager.output.append(output);
+                    this.buildProcess.stdout.on('data', (data: Buffer) => {
+                        emitOut(stdoutDec.push(data), false);
                     });
                 }
 
                 if (this.buildProcess.stderr) {
-                    this.buildProcess.stderr.on('data', (data) => {
-                        const output = Buffer.from(data).toString();
-                        stderr += output;
-                        if (onOutput) {
-                            onOutput(output);
-                        }
-                        this.manager.output.append(output, "error");
+                    this.buildProcess.stderr.on('data', (data: Buffer) => {
+                        emitOut(stderrDec.push(data), true);
                     });
                 }
 
@@ -107,6 +118,8 @@ export class GradleService extends Service {
 
                 this.buildProcess.on('close', (code) => {
                     this.buildProcess = null;
+                    emitOut(stdoutDec.end(), false);
+                    emitOut(stderrDec.end(), true);
                     if (code === 0) {
                         resolve({ stdout, stderr });
                     } else {
@@ -117,10 +130,10 @@ export class GradleService extends Service {
             });
 
         try {
-            await runGradleTask(variantTask, {
+            await runGradleTask(variantTask, withJavaUtf8ProcessEnv({
                 ...process.env,
                 ...(deviceSerial ? { ANDROID_SERIAL: deviceSerial } : {}),
-            });
+            }));
             showMsg(MsgType.info, `${variantTask} installed successfully.`);
         } catch (error: any) {
             if (error?.message === "Build was cancelled") {
@@ -162,6 +175,7 @@ export class GradleService extends Service {
             const spawnOptions: child_process.SpawnOptions = {
                 shell: false,
                 cwd: this.workspacePath,
+                env: withJavaUtf8ProcessEnv(process.env),
                 windowsHide: true,
             };
 
@@ -169,26 +183,33 @@ export class GradleService extends Service {
 
             let stdout = '';
             let stderr = '';
+            const stdoutDec = new StreamingProcessDecoder();
+            const stderrDec = new StreamingProcessDecoder();
+
+            const emitOut = (text: string, isErr: boolean) => {
+                if (!text) {
+                    return;
+                }
+                if (isErr) {
+                    stderr += text;
+                    onOutput?.(text);
+                    this.manager.output.append(text, "error");
+                } else {
+                    stdout += text;
+                    onOutput?.(text);
+                    this.manager.output.append(text);
+                }
+            };
 
             if (this.buildProcess.stdout) {
-                this.buildProcess.stdout.on('data', (data) => {
-                    const output = Buffer.from(data).toString();
-                    stdout += output;
-                    if (onOutput) {
-                        onOutput(output);
-                    }
-                    this.manager.output.append(output);
+                this.buildProcess.stdout.on('data', (data: Buffer) => {
+                    emitOut(stdoutDec.push(data), false);
                 });
             }
 
             if (this.buildProcess.stderr) {
-                this.buildProcess.stderr.on('data', (data) => {
-                    const output = Buffer.from(data).toString();
-                    stderr += output;
-                    if (onOutput) {
-                        onOutput(output);
-                    }
-                    this.manager.output.append(output, "error");
+                this.buildProcess.stderr.on('data', (data: Buffer) => {
+                    emitOut(stderrDec.push(data), true);
                 });
             }
 
@@ -207,6 +228,7 @@ export class GradleService extends Service {
 
             this.buildProcess.on('error', (error) => {
                 this.buildProcess = null;
+                emitOut(stderrDec.end(), true);
                 this.manager.output.append(stderr, "error");
                 showMsg(MsgType.error, `Failed to assemble ${variantTask}: ${error.message}`);
                 reject(error);
@@ -214,6 +236,8 @@ export class GradleService extends Service {
 
             this.buildProcess.on('close', (code) => {
                 this.buildProcess = null;
+                emitOut(stdoutDec.end(), false);
+                emitOut(stderrDec.end(), true);
                 if (code === 0) {
                     showMsg(MsgType.info, `${variantTask} assembled successfully.`);
                     resolve();

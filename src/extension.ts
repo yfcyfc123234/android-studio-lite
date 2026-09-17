@@ -9,11 +9,25 @@ import { KotlinImportFoldingProvider } from './language/KotlinImportFoldingProvi
 import { LogcatService } from './service/LogcatService';
 import { ScreenshotService } from './service/ScreenshotService';
 import { setDialogExtensionUri } from './ui/themedDialog';
+import { resetProcessOutputEncodingCache } from './utils/processOutputEncoding';
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log('Android Studio Lite extension is now active!');
 
 	setDialogExtensionUri(context.extensionUri);
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (
+				e.affectsConfiguration('android-studio-lite.processOutputEncoding') ||
+				e.affectsConfiguration('android-studio-lite.forceUtf8ForJava') ||
+				e.affectsConfiguration('files.encoding') ||
+				e.affectsConfiguration('java.import.gradle.jvmArguments') ||
+				e.affectsConfiguration('java.jdt.ls.vmargs')
+			) {
+				resetProcessOutputEncodingCache();
+			}
+		}),
+	);
 	// Initialize Manager (core singleton)
 	const manager = Manager.getInstance();
 	await manager.android.initCheck();

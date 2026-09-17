@@ -65,6 +65,8 @@ After changing environment variables, restart the editor.
 - Command Palette: `Android Studio Lite: Take Screenshot`
 - Settings:
   - `android-studio-lite.screenshot.saveMode`: `ask` (default) | `file` | `clipboard`
+  - `android-studio-lite.processOutputEncoding`: `auto` (default) | `utf8` | `system` | `gbk` / … — decode Gradle/ADB Output text. `auto` follows `files.encoding`, Java extension JVM args, then Windows `chcp`.
+  - `android-studio-lite.forceUtf8ForJava`: default `true` — when decoding as UTF-8, inject JVM UTF-8 flags for Gradle spawns (Cursor/VS Code Output is UTF-8).
   - `android-studio-lite.screenshot.savePath`: folder for PNG files (empty → `<workspace>/screenshots`)
 
 ---
