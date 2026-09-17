@@ -150,10 +150,7 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
         } else if (e.type === 'toggle-logcat') {
             void this.handleToggleLogcat(e.params);
         } else if (e.type === 'take-screenshot') {
-            void commands.executeCommand('android-studio-lite.takeScreenshot', {
-                serial: e.params?.serial,
-                avdName: e.params?.avdName,
-            });
+            void commands.executeCommand('android-studio-lite.takeScreenshot', e.params?.serial);
         }
     }
 
@@ -216,18 +213,16 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
             const variantName = selectedVariants[moduleName] || module.variants[0].name;
             const variant = module.variants.find(v => v.name === variantName) || module.variants[0];
 
-            // Prefer metadata install task. Do not invent install* for release — AGP often has none.
+            // Prefer metadata install task; fall back for older scripts that only
+            // exposed install on debug (release had bundle only).
             let installTask = variant.tasks.install;
-            if (!installTask && module.type === 'application' && variant.buildType === 'debug') {
+            if (!installTask && module.type === 'application') {
                 const cap = variantName.charAt(0).toUpperCase() + variantName.slice(1);
-                const pathPrefix = moduleName === ':' ? '' : moduleName;
-                installTask = pathPrefix ? `${pathPrefix}:install${cap}` : `:install${cap}`;
-                console.log(`[AVDSelectorProvider] install task missing in metadata; debug fallback ${installTask}`);
+                installTask = `${moduleName}:install${cap}`;
+                console.log(`[AVDSelectorProvider] install task missing in metadata; falling back to ${installTask}`);
             }
             if (!installTask) {
-                await this.host.notify('build-failed', {
-                    error: `No install task for variant ${variantName}. Debuggable/debug variants expose install*; ordinary release usually does not.`,
-                });
+                await this.host.notify('build-failed', { error: `No install task found for variant ${variantName}` });
                 return;
             }
 
@@ -318,20 +313,19 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
                             if (recovery === 'recovered') {
                                 // continue to launch
-                            } else if (recovery === 'cancelled' || recovery === 'reinstall_failed') {
-                                // Confirm dismissed, or uninstall already done + tip shown
+                            } else if (recovery === 'cancelled') {
+                                // User dismissed confirm / missing applicationId tip already shown
                                 throw Object.assign(
                                     new Error(this.extractBuildErrorMessage(installError)),
                                     { __aslPresented: true },
                                 );
                             } else {
-                                await presentRunError(installError, {
-                                    plainMessage: this.extractBuildErrorMessage(installError),
-                                    toastPrefix: 'Install failed',
-                                });
+                                // Do not await error UI here — it would keep withProgress ("Building…")
+                                // and the Run button stuck until the user dismisses the message.
+                                // Outer catch notifies build-failed first, then presents the error.
                                 throw Object.assign(
                                     new Error(this.extractBuildErrorMessage(installError)),
-                                    { __aslPresented: true },
+                                    { __aslInstallError: installError },
                                 );
                             }
                         }
@@ -370,12 +364,14 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
                 await this.host.notify('build-cancelled', {});
                 window.showInformationMessage('Build was cancelled');
             } else {
-                const errorMessage = this.extractBuildErrorMessage(error);
+                const sourceError = error?.__aslInstallError || error;
+                const errorMessage = this.extractBuildErrorMessage(sourceError);
                 console.error('[AVDSelectorProvider] Build failed with error:', errorMessage);
                 console.error('[AVDSelectorProvider] Full error object:', error);
+                // Reset Run button before any modal/toast so UI does not stay on "Building..."
                 await this.host.notify('build-failed', { error: errorMessage });
                 if (!error?.__aslPresented) {
-                    await presentRunError(error, {
+                    await presentRunError(sourceError, {
                         plainMessage: errorMessage,
                         toastPrefix: 'Build failed',
                     });
