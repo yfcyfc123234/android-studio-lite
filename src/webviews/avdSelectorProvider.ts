@@ -129,8 +129,10 @@ export class AVDSelectorProvider implements WebviewProvider<AVDSelectorWebviewSt
 
     private async handleRunApp(params: any): Promise<void> {
         const { avdName, moduleName, cancellationToken } = params || {};
-        if (!avdName || !moduleName) {
-            await this.host.notify('build-failed', { error: 'AVD and Module must be selected' });
+        if (!avdName || !moduleName || avdName === 'undefined' || avdName === 'null') {
+            await this.host.notify('build-failed', {
+                error: 'No AVD or module selected. Create/start an AVD, then try Run again.',
+            });
             return;
         }
 

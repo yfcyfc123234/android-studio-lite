@@ -2,6 +2,17 @@
 
 All notable changes to the "Android Studio Lite" extension will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Sidebar refresh:** Icon buttons next to Select AVD / Select Module to re-scan AVDs and Gradle modules.
+
+### Changed
+- **Dropdown width:** AVD/Module dropdowns fill the sidebar width instead of capping at 300px.
+
+### Fixed
+- **Run with no AVD:** Run stays disabled unless a real named AVD and module are selected; empty lists clear selection.
+
 ## [0.0.10] - 2026-03-06
 
 ### Changed

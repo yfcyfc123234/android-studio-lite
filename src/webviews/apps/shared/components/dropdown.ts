@@ -15,10 +15,11 @@ export class ASlDropdown extends ASlElement {
 		elementBase,
 		css`
 			:host {
-				display: inline-block;
+				display: block;
 				position: relative;
 				width: 100%;
-				max-width: 300px;
+				max-width: 100%;
+				box-sizing: border-box;
 			}
 
 			.dropdown-container {
