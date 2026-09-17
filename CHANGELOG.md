@@ -5,6 +5,7 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ## [Unreleased]
 
 ### Fixed
+- **Run button stuck on Building… after failure:** Notify `build-failed` before awaiting error UI so the sidebar resets immediately.
 - **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
 - **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
 - **Gradle/ADB Output mojibake on Windows:** Process stdout/stderr is decoded with a code-page–aware path (`iconv-lite`) instead of always UTF-8. `auto` follows `files.encoding`, Java extension JVM args, then `chcp`; optional `forceUtf8ForJava` injects UTF-8 JVM flags when decoding as UTF-8. Settings: `android-studio-lite.processOutputEncoding`, `android-studio-lite.forceUtf8ForJava`.
