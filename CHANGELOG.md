@@ -5,6 +5,8 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 ## [Unreleased]
 
 ### Added
+- **Screenshot failure diagnosis:** When `screencap -p` is not a PNG, the Android Studio Lite output lists exit code, stdout size, first 32 bytes, and a classification (raw framebuffer, JPEG, WebP, or text). The toast no longer guesses that the screen is locked.
+- **Multi-display screenshot:** Pass `screencap -p -d` using the default display id from `screencap -h` (it follows fold open/closed and matches `wm size`). A leftover stdout warning is still stripped. Single-display devices keep a PNG that already starts at byte 0.
 - **Sidebar refresh:** Icon buttons next to Select Device / Select Module to re-scan devices/AVDs and Gradle modules.
 
 ### Fixed
