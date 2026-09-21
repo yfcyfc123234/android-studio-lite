@@ -4,14 +4,9 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 
 ## [Unreleased]
 
-### Fixed
-- **Run button stuck on Building… after failure:** Notify `build-failed` before awaiting error UI so the sidebar resets immediately.
-- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
-- **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
-- **Gradle/ADB Output mojibake on Windows:** Process stdout/stderr is decoded with a code-page–aware path (`iconv-lite`) instead of always UTF-8. `auto` follows `files.encoding`, Java extension JVM args, then `chcp`; optional `forceUtf8ForJava` injects UTF-8 JVM flags when decoding as UTF-8. Settings: `android-studio-lite.processOutputEncoding`, `android-studio-lite.forceUtf8ForJava`.
-- **AGP 9 module discovery:** Build Variant / Module dropdown no longer stays empty on AGP 9 (`android.newDsl`). The init script now collects variants via `androidComponents.onVariants`, and still falls back to legacy `applicationVariants` / `libraryVariants` for AGP 7/8 or `android.newDsl=false`.
-
 ### Added
+- **Screenshot failure diagnosis:** When `screencap -p` is not a PNG, the Android Studio Lite output lists exit code, stdout size, first 32 bytes, and a classification (raw framebuffer, JPEG, WebP, or text). The toast no longer guesses that the screen is locked.
+- **Multi-display screenshot:** Pass `screencap -p -d` using the default display id from `screencap -h` (it follows fold open/closed and matches `wm size`). A leftover stdout warning is still stripped. Single-display devices keep a PNG that already starts at byte 0.
 - **Physical device support:** The Run dropdown lists online devices from `adb devices` alongside local AVDs. Running on a physical device skips emulator boot and sets `ANDROID_SERIAL` for Gradle install/launch.
 - **Build Variant cascade:** Changing an application module's variant aligns library modules to a compatible variant with the same `buildType` (and best flavor overlap), similar to Android Studio.
 - **Release Run/install:** Application release variants now expose `install*` tasks (not only `bundle`), using project-scoped paths.
@@ -19,6 +14,13 @@ All notable changes to the "Android Studio Lite" extension will be documented in
 - **Install conflict recovery (AS-style):** On recoverable adb install failures (`INSTALL_FAILED_VERSION_DOWNGRADE`, signature mismatch, etc.), show a themed confirm; if accepted, `adb uninstall` then reinstall and launch. `VERSION_DOWNGRADE` shows installed vs attempted `versionCode`.
 - **Run error recovery module:** Central classifier for common install/device failures; storage/ABI/SDK/device-offline/etc. show tip dialogs instead of a raw stack toast.
 - **Themed Run dialogs:** Confirm/tip dialogs use a Webview with VS Code CSS variables (follow editor theme) and a centered modal card; error code / details are copyable.
+
+### Fixed
+- **Run button stuck on Building… after failure:** Notify `build-failed` before awaiting error UI so the sidebar resets immediately.
+- **Output word-split / fake `[ERR] -8`:** Streaming no longer blindly holds trailing ASCII; stderr not auto-`[ERR]`; Windows Gradle `shell: true` + allowlist; accept `BUILD SUCCESSFUL` despite quirky exit codes.
+- **Windows `spawn EINVAL` on Run/Install:** Node rejects `spawn(gradlew.bat, …, { shell: false })` (CVE-2024-27980). Gradle install/assemble now launches via `cmd.exe /c` with the task as a separate argv.
+- **Gradle/ADB Output mojibake on Windows:** Process stdout/stderr is decoded with a code-page–aware path (`iconv-lite`) instead of always UTF-8. `auto` follows `files.encoding`, Java extension JVM args, then `chcp`; optional `forceUtf8ForJava` injects UTF-8 JVM flags when decoding as UTF-8. Settings: `android-studio-lite.processOutputEncoding`, `android-studio-lite.forceUtf8ForJava`.
+- **AGP 9 module discovery:** Build Variant / Module dropdown no longer stays empty on AGP 9 (`android.newDsl`). The init script now collects variants via `androidComponents.onVariants`, and still falls back to legacy `applicationVariants` / `libraryVariants` for AGP 7/8 or `android.newDsl=false`.
 
 ### Changed
 - Preserve selected Run target across refreshes; launch via `execFile` args (no shell interpolation); classify online `emulator-*` separately from physical devices.
